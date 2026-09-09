@@ -116,10 +116,13 @@ js/
   viewer.js         the sandboxed iframe
   policy.js         per-site script opt-in, and the bridge to the worker
   publish.js        dropped folder → seeded torrent
+  keep.js           opt-in offline storage: keep, forget, restore on boot
+  idb.js            IndexedDB — the only thing that writes to disk
   magnet.js         parsing whatever the user pasted
   config.js         trackers and timeouts
 vendor/             WebTorrent, committed verbatim (see vendor/README.md)
 tools/serve.mjs     dev server
+tools/e2e.mjs       browser check of both MVP promises and the security model
 example-site/       a site to publish while testing
 ```
 
