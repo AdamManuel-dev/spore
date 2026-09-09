@@ -75,6 +75,18 @@
   <p id="notice" class="notice" hidden></p>
 
   <!--
+    Not every torrent is a website. One without an index.html still has
+    contents worth seeing, so it gets a listing rather than a dead end.
+  -->
+  <section id="listing" class="listing" hidden>
+    <h1 id="listing-name"></h1>
+    <p id="listing-summary" class="muted"></p>
+    <p class="muted">This torrent has no <code>index.html</code>, so there is no
+       page to render. Its files are below — pick one to open it here.</p>
+    <ul id="listing-files" class="listing-files"></ul>
+  </section>
+
+  <!--
     A site that nobody is seeding is the ordinary case, not a malfunction, and
     it deserves the same treatment a web server gives a missing page rather
     than a line of red text.

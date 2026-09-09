@@ -288,6 +288,7 @@ async function run () {
   await checkUncontrolledPageRecovers(page)
   await checkMissingSiteAndHome(page)
   await checkKeptSiteSurvivesReload(page)
+  await checkTorrentWithoutIndex(page)
 }
 
 /**
@@ -536,6 +537,59 @@ async function checkMissingSiteAndHome (page) {
     await page.evaluate(() => location.hash))
   await page.evaluate(() => history.pushState(null, '', location.pathname))
   await page.evaluate(() => { location.hash = '' })
+}
+
+/**
+ * A torrent that is not a website still shows its contents.
+ *
+ * Most torrents in the world have no index.html — archives, albums, datasets.
+ * Refusing them outright turned every one into a dead end, when their files are
+ * perfectly serveable.
+ */
+async function checkTorrentWithoutIndex (page) {
+  const hash = await page.evaluate(async () => {
+    const files = [
+      new File(['a movie would go here'], 'sintel.mp4', { type: 'video/mp4' }),
+      new File(['some notes'], 'readme.txt', { type: 'text/plain' })
+    ]
+    files[0].fullPath = 'not-a-website/sintel.mp4'
+    files[1].fullPath = 'not-a-website/readme.txt'
+
+    const { seedTorrent } = await import('/js/swarm.js')
+    const torrent = await seedTorrent(files, { name: 'not-a-website' })
+    return torrent.infoHash
+  })
+
+  await page.evaluate(h => { location.hash = h }, hash)
+  await page.waitForFunction(() => !document.getElementById('listing').hidden, { timeout: 30_000 })
+
+  const listing = await page.evaluate(() => ({
+    name: document.getElementById('listing-name').textContent,
+    summary: document.getElementById('listing-summary').textContent,
+    files: [...document.querySelectorAll('#listing-files .path')].map(el => el.textContent),
+    errorHidden: document.getElementById('error').hidden,
+    viewerHidden: document.getElementById('viewer').hidden
+  }))
+  check('a torrent with no index.html lists its files instead of failing',
+    listing.files.length === 2 && listing.errorHidden && listing.viewerHidden,
+    JSON.stringify(listing))
+  check('the listing names the torrent and its size',
+    listing.name === 'not-a-website' && listing.summary.includes('2 files'),
+    `${listing.name} — ${listing.summary}`)
+
+  // Picking a file opens it in the same sandboxed viewer a site would use.
+  await page.click('#listing-files button')
+  await page.waitForFunction(() => !document.getElementById('viewer').hidden, { timeout: 15_000 })
+  const opened = await page.evaluate(() => ({
+    src: document.getElementById('viewer').src,
+    sandbox: document.getElementById('viewer').getAttribute('sandbox')
+  }))
+  check('a file from the listing opens in the viewer, still sandboxed',
+    opened.src.includes(hash) && opened.sandbox.trim() === 'allow-same-origin',
+    JSON.stringify(opened))
+
+  await page.evaluate(() => { location.hash = '' })
+  await wait(500)
 }
 
 /**

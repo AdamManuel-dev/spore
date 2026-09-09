@@ -425,3 +425,57 @@ body.is-dragging .drop-overlay { display: flex; }
   justify-content: center;
   flex-wrap: wrap;
 }
+
+/* --- a torrent that is not a website ------------------------------------ */
+
+.listing {
+  margin: 0 auto;
+  padding: 40px 20px 60px;
+  max-width: 44rem;
+}
+
+.listing h1 {
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+  font-size: 22px;
+}
+
+.listing p { margin: 0 0 14px; }
+
+.listing-files {
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.listing-files li + li { border-top: 1px solid var(--line); }
+
+.listing-files button {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--ink);
+  font: 13px/1.5 var(--mono);
+  text-align: left;
+  cursor: pointer;
+}
+
+.listing-files button:hover { background: var(--line); }
+
+.listing-files .path {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.listing-files .size {
+  color: var(--muted);
+  white-space: nowrap;
+}

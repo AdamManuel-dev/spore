@@ -48,6 +48,10 @@ const ui = {
   errorRef: el('error-ref'),
   errorRetry: el('error-retry'),
   errorHome: el('error-home'),
+  listing: el('listing'),
+  listingName: el('listing-name'),
+  listingSummary: el('listing-summary'),
+  listingFiles: el('listing-files'),
   saveTorrent: el('save-torrent'),
   diagnose: el('diagnose'),
   diagnostics: el('diagnostics'),
@@ -198,7 +202,6 @@ async function open (ref) {
     stopJoining()
 
     const entry = findEntry(torrent)
-    if (!entry) throw new Error(`“${torrent.name}” has no index.html, so there is no page to show.`)
 
     // Without a controller the iframe's request never reaches the worker and
     // the reader gets the host's 404 instead of the site. Better to say so.
@@ -210,7 +213,12 @@ async function open (ref) {
     }
 
     current = { torrent, ref }
-    await render(torrent, entry)
+
+    // A torrent without an index.html is not a broken site, it is not a site.
+    // Refusing it outright made a whole category of torrent — an archive, an
+    // album, a dataset — a dead end, when its contents are perfectly readable.
+    if (entry) await render(torrent, entry)
+    else showListing(torrent)
   } catch (err) {
     stopJoining()
     fail(err)
@@ -450,6 +458,69 @@ function renderKeptSite (site) {
 /* -------------------------------------------------------------------------- */
 
 /**
+ * Show what is in a torrent that is not a website.
+ *
+ * Plenty of torrents are archives, albums, datasets — no `index.html`, and
+ * nothing wrong with them. Rejecting those made Spore useless for a whole
+ * category of content whose files it can serve perfectly well, so it lists
+ * them instead and lets the reader open one.
+ *
+ * Each file opens in the same sandboxed viewer a site would, under the same
+ * policy, so a video plays and a text file renders without the torrent gaining
+ * anything a site would not have.
+ */
+function showListing (torrent) {
+  const files = [...torrent.files].sort((a, b) => a.path.localeCompare(b.path))
+
+  ui.listingName.textContent = torrent.name ?? torrent.infoHash
+  ui.listingSummary.textContent =
+    `${files.length} file${files.length === 1 ? '' : 's'} · ${formatBytes(torrent.length)}`
+  ui.listingFiles.replaceChildren(...files.map(file => listedFile(torrent, file)))
+
+  ui.listing.hidden = false
+  ui.notice.hidden = true
+  ui.welcome.hidden = true
+  ui.error.hidden = true
+  ui.viewer.clear()
+
+  ui.scripts.disabled = true
+  ui.scriptsLabel.hidden = true
+  ui.keep.checked = false
+  ui.keepLabel.hidden = false
+  ui.keep.disabled = false
+  ui.saveTorrent.hidden = false
+  ui.status.textContent = torrent.name ?? torrent.infoHash
+
+  watchStats(torrent)
+}
+
+function listedFile (torrent, file) {
+  const path = file.path.replace(/\\/g, '/')
+
+  const name = document.createElement('span')
+  name.className = 'path'
+  name.textContent = path
+
+  const size = document.createElement('span')
+  size.className = 'size'
+  size.textContent = formatBytes(file.length)
+
+  const open = document.createElement('button')
+  open.type = 'button'
+  open.append(name, size)
+  // Never with scripts: nothing here has been opted in, and a file picked out
+  // of a listing has had even less scrutiny than a site someone linked to.
+  open.addEventListener('click', () => {
+    ui.listing.hidden = true
+    ui.viewer.show(entryURL(torrent.infoHash, path), { scripts: false })
+  })
+
+  const item = document.createElement('li')
+  item.append(open)
+  return item
+}
+
+/**
  * Hand the .torrent to something that can seed it around the clock.
  *
  * A browser stops seeding when its tab closes, so a site that should stay up
@@ -622,6 +693,7 @@ function showWelcome () {
   ui.welcome.hidden = false
   ui.notice.hidden = true
   ui.error.hidden = true
+  ui.listing.hidden = true
   ui.address.value = ''
   ui.visit.value = ''
   ui.scripts.disabled = true
@@ -651,6 +723,7 @@ function busy (message) {
   ui.notice.hidden = false
   ui.welcome.hidden = true
   ui.error.hidden = true
+  ui.listing.hidden = true
 }
 
 /**
@@ -677,6 +750,7 @@ function fail (error) {
   ui.error.hidden = false
   ui.notice.hidden = true
   ui.welcome.hidden = true
+  ui.listing.hidden = true
   ui.scripts.disabled = true
   ui.scriptsLabel.hidden = true
   ui.keep.disabled = true
