@@ -71,6 +71,21 @@ Every reader who opens the link seeds it too, for as long as their tab is open.
 - **Not updatable yet.** A magnet addresses fixed bytes. Mutable pointers,
   discovery and human-readable names are a later phase.
 
+## Checking it still works
+
+The security model is a set of claims about what a browser will and will not
+do, so it is checked in one rather than argued about:
+
+```sh
+npm install puppeteer-core     # the only dependency, and only for this
+node tools/e2e.mjs             # --chrome /path/to/chrome if it is not found
+```
+
+It publishes `example-site/`, opens it the way a reader would, and asserts each
+guarantee: the site renders from the swarm with its stylesheet and images,
+scripts stay dead until opted in, an off-site image is refused, and a site
+cannot climb out of its own torrent into another one.
+
 ## Layout
 
 ```
