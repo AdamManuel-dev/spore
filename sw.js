@@ -25,7 +25,7 @@
  * stale one is invisible: everything looks healthy and nothing works. The
  * Diagnostics panel compares the two and says so.
  */
-const VERSION = '2026-09-10.3'
+const VERSION = '2026-09-10.4'
 
 const WEBTORRENT_PREFIX = 'webtorrent/'
 const PORT_TIMEOUT_MS = 5000
@@ -39,6 +39,15 @@ let streamCancelSupported = false
 self.addEventListener('message', event => {
   if (event.data?.type === 'spore/version') {
     event.ports[0]?.postMessage({ version: VERSION })
+  }
+
+  // Asked by a page that found this worker parked in `waiting` behind an older
+  // one. `skipWaiting()` on install is supposed to prevent that and usually
+  // does, but it is not guaranteed, and the worker that is active in the
+  // meantime may be an old build that understands none of these messages —
+  // which is exactly the state that left Chromium unable to display anything.
+  if (event.data?.type === 'spore/skip-waiting') {
+    event.waitUntil(self.skipWaiting())
   }
 
   // A page can end up with an active worker that is not controlling it — a

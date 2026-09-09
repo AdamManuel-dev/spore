@@ -73,19 +73,60 @@ export async function startWorker () {
 async function controllerTakesOver (registration) {
   if (await controllerChange(CONTROLLER_TIMEOUT_MS)) return
 
-  // Still uncontrolled with a worker sitting right there. Rather than tell the
-  // reader to reload, ask the worker to claim this page. `clients.claim()` is
-  // normally only called on activate, which has long since happened for anyone
-  // whose registration predates this page load.
+  // A new worker stuck in `waiting` behind an older active one. This is the
+  // state that had Chromium showing nothing at all: `waiting=installed,
+  // active=activated`. Pushing the waiting worker through is what fixes it —
+  // and it has to be asked *before* the active one, because that active worker
+  // may be an old build with no idea what any of these messages mean.
+  if (registration.waiting) {
+    console.warn('Spore: a newer worker is waiting behind an older one; asking it to take over.')
+    registration.waiting.postMessage({ type: 'spore/skip-waiting' })
+    if (await controllerChange(CLAIM_TIMEOUT_MS)) return
+  }
+
+  // Active but not controlling. `clients.claim()` normally only runs on
+  // activate, which has long since happened for anyone whose registration
+  // predates this page load, so ask for it explicitly.
   if (registration.active) {
     console.warn('Spore: page not controlled by the worker; asking it to claim this page.')
     registration.active.postMessage({ type: 'spore/claim' })
     if (await controllerChange(CLAIM_TIMEOUT_MS)) return
+  }
 
+  await startOver(registration)
+}
+
+/**
+ * Last resort: throw the registration away and reload once.
+ *
+ * Reached only when a worker is present and, after being asked twice, still is
+ * not controlling this page — a profile whose registration is wedged in a way
+ * nothing polite recovers from. Unregistering and reloading always fixes it,
+ * and it is what a reader would otherwise have to find the Reset button to do.
+ *
+ * Guarded by a session flag so a browser that can never be controlled reloads
+ * once and then gets on with reporting the problem, rather than looping.
+ */
+async function startOver (registration) {
+  const FLAG = 'spore.restarted-worker'
+  if (sessionStorage.getItem(FLAG)) {
     console.warn(
-      'Spore: the worker did not take control. Sites may still open, because ' +
-      'the viewer iframe is matched to the worker by URL. If nothing renders, ' +
-      'reload the page normally (not Ctrl+F5, which bypasses the worker).')
+      'Spore: the worker still is not controlling this page after a restart. ' +
+      'Open Diagnostics for the details, and use Reset if sites will not load.')
+    return
+  }
+
+  console.warn('Spore: worker will not take control; unregistering it and reloading once.')
+  try {
+    sessionStorage.setItem(FLAG, '1')
+    await registration.unregister()
+    location.reload()
+    // Give the reload a moment to happen, but never wait on it forever: a
+    // reload that does not arrive must not leave the gate stuck on "Starting…",
+    // which is the class of bug this whole path exists to fix.
+    await new Promise(resolve => setTimeout(resolve, 2000))
+  } catch (err) {
+    console.warn('Spore: could not restart the worker:', err)
   }
 }
 
