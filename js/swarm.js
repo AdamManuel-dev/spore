@@ -6,6 +6,9 @@
  * Consequence, and it is a real one: seeding stops when the tab closes.
  */
 
+// The vendored bundle is an ES module, so it is imported like our own code
+// rather than dropped on `window` by a classic <script>.
+import WebTorrent from '../vendor/webtorrent.min.js'
 import { METADATA_TIMEOUT_MS } from './config.js'
 
 /** @type {import('webtorrent').Instance|null} */

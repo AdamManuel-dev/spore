@@ -20,6 +20,22 @@
   <li>The box below stays red unless you enable scripts for this site.</li>
 </ul>
 <p id="probe" class="probe">Scripts are off.</p>
+
+<h2>Egress probes</h2>
+<p>Both images below are deliberately pointed somewhere they must never be
+   allowed to go. Neither is a script, which is the point: without a network
+   egress block, plain markup like this is enough to tell a third party who is
+   reading. They should stay broken, and the browser console should say
+   <code>Refused to load … Content Security Policy</code>.</p>
+<ul>
+  <li><img src="https://example.invalid/pixel.png" alt="off-site pixel: must not load" width="16" height="16">
+      an off-site image — would reveal the reader's IP address</li>
+  <li><img src="../../0000000000000000000000000000000000000000/pixel.png" alt="other torrent: must not load" width="16" height="16">
+      a file from a different torrent, reached by climbing out of this one's
+      path — sites share an origin, so only the path-scoped CSP keeps them
+      apart</li>
+</ul>
+
 <script src="probe.js"></script>
 </body>
 </html>

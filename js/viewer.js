@@ -1,29 +1,46 @@
 /**
  * The window a site is shown through.
  *
- * Two layers hold a hostile site away from the gate:
+ * ## Why `allow-same-origin` is here
  *
- *  - `sandbox` on the iframe, deliberately without `allow-same-origin`. The
- *    site therefore runs in an opaque origin: it cannot read the gate's DOM,
- *    storage or service worker registration, and — because each load gets its
- *    own opaque origin — one site cannot reach another through the DOM either.
- *    `allow-scripts` is added only for a site the reader has opted in, and
- *    never together with `allow-same-origin`, which would hand the site the
- *    gate's own origin and undo all of this.
- *  - the Content-Security-Policy the worker attaches to every response, which
- *    is what stops network egress. See `sw.js`.
+ * The obvious design is a fully sandboxed iframe with an opaque origin. It does
+ * not work, and the reason is worth recording so that nobody "fixes" it back:
  *
- * The address bar and controls live outside the iframe, in the gate's own
- * document, so a site cannot paint over them or fake them.
+ *   Service worker is disabled because the context is sandboxed and lacks the
+ *   'allow-same-origin' flag.
+ *
+ * A sandboxed document without `allow-same-origin` gets an opaque origin, and a
+ * client with an opaque origin is never controlled by a service worker — the
+ * navigation is not intercepted and neither is a single subresource. Since the
+ * worker is how sites are served at all, sites have to share the gate's origin.
+ * (`Content-Security-Policy: sandbox` on the response fails the same way one
+ * step later: the document loads, then everything inside it 404s.)
+ *
+ * So isolation rests on two layers instead:
+ *
+ *  - This sandbox, which withholds everything not explicitly granted: no
+ *    scripts, no top-level navigation (a site cannot replace the gate), no
+ *    popups (a `target=_blank` to a third party would leak the reader's IP),
+ *    no forms, no downloads, no plugins.
+ *  - The Content-Security-Policy the worker attaches to every response, which
+ *    pins every load to the site's own torrent and blocks network egress.
+ *
+ * With scripts off — the default — there is no code inside the site that could
+ * make use of the shared origin, so the two layers hold.
+ *
+ * ## The honest limit
+ *
+ * A site the reader opts in to scripts *does* run on the gate's origin and can
+ * therefore reach `window.parent` and tamper with the gate's own chrome. CSP
+ * still confines what it can load, and it cannot install a service worker of
+ * its own (a registration's script fetch bypasses our worker, and scope is
+ * path-limited because we never send `Service-Worker-Allowed`), but the address
+ * bar above it stops being trustworthy. Fixing that properly needs a second
+ * origin for content, which is a Phase 2 change. Until then the opt-in asks.
  */
 
-const BASE_SANDBOX = [
-  'allow-forms',    // forms still cannot go anywhere: CSP sets form-action 'none'
-  'allow-popups',
-  // A popup must not inherit the opener's sandbox-with-scripts; keeping it
-  // sandboxed means an opened tab cannot script its way back here.
-  'allow-popups-to-escape-sandbox'
-]
+/** Nothing is granted that the site has not been given a reason to have. */
+const BASE_SANDBOX = ['allow-same-origin']
 
 export class Viewer {
   /** @param {HTMLIFrameElement} frame */
@@ -47,8 +64,8 @@ export class Viewer {
 
   clear () {
     this.frame.hidden = true
-    // about:blank rather than removing src, so the previous document is
-    // discarded immediately instead of lingering behind a hidden frame.
+    // about:blank rather than dropping src, so the previous document is
+    // discarded now instead of lingering behind a hidden frame.
     this.frame.src = 'about:blank'
   }
 }

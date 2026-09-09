@@ -45,9 +45,9 @@
 
 <main class="stage">
   <!--
-    The site lives here, behind a sandbox. `sandbox` is set from JS per site
-    (scripts are opt-in), but it is declared here too so the element is never
-    briefly unsandboxed. Nothing is loaded until then.
+    The site lives here, behind a sandbox. The real flags are set per site from
+    js/viewer.js (scripts are opt-in); the empty attribute here means the frame
+    is maximally restricted before anything is ever loaded into it.
   -->
   <iframe id="viewer" class="viewer" sandbox="" src="about:blank" hidden
           title="Hosted site"></iframe>
@@ -92,7 +92,6 @@
   <span id="progress"></span>
 </footer>
 
-<script src="vendor/webtorrent.min.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

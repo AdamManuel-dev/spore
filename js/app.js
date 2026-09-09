@@ -117,14 +117,31 @@ function render (torrent, entry) {
   watchStats(torrent)
 }
 
+const SCRIPTS_WARNING = `Run this site's scripts?
+
+Spore has to serve sites from its own origin — a service worker cannot reach a
+sandboxed frame — so a site with scripts enabled can also tamper with Spore's
+own address bar and controls. It still cannot reach the network outside its
+torrent, and this does not apply to any other site.
+
+Only enable this for a site you trust.`
+
 /**
- * Flipping the switch reloads the site: the policy is carried on response
- * headers, so the document has to be fetched again to be governed by the new
- * one. Reloading also discards whatever the previous, script-less document did.
+ * Flipping the switch reloads the site: the policy travels on response headers,
+ * so the document has to be fetched again to be governed by the new one.
+ * Reloading also discards whatever the previous, script-less document did.
  */
 async function onScriptsToggle () {
   if (!current) return
   const { torrent } = current
+
+  // Granting scripts is the one decision in the gate that gives something up,
+  // so it is the one that asks. Turning them back off never does.
+  if (ui.scripts.checked && !confirm(SCRIPTS_WARNING)) {
+    ui.scripts.checked = false
+    return
+  }
+
   await setScriptsAllowed(torrent.infoHash, ui.scripts.checked)
 
   const entry = findEntry(torrent)

@@ -1,0 +1,153 @@
+# Security model
+
+Spore renders code and markup written by strangers. This document says what the
+gate defends against, how, and — just as importantly — what it does not defend
+against. Every claim here corresponds to something in the code; where a defence
+is incomplete it is written down as incomplete rather than left implied.
+
+## What we are protecting
+
+1. **The reader's network identity from the *content*.** A site must not be able
+   to make the browser touch anything outside its own torrent. This is the
+   priority: it holds even when JavaScript is off, because an `<img>`, a
+   `background-image`, a webfont or a form is enough to report a reader's IP
+   address to a third party.
+2. **The gate from the site.** A hostile site must not be able to reach the
+   address bar and controls, or read another site's files.
+3. **Integrity of what is shown.** A magnet addresses content by hash, and
+   WebTorrent verifies every piece against it. Bytes that do not match are not
+   rendered — there is nothing to trust about the peer that sent them.
+
+## What we are *not* protecting
+
+**Anonymity.** Peers in a swarm see each other's IP addresses; that is how
+BitTorrent works. Spore makes content hard to take down. It does not hide who
+published it or who is reading it, and it must never be described as if it did.
+
+## The chokepoint
+
+Everything a site loads is a request to `/webtorrent/<infoHash>/<path>` on the
+gate's origin, answered by [`sw.js`](sw.js). A service worker sees *every*
+request its clients make, which is why the gate does not rewrite HTML or invent
+custom elements to fetch resources: there is no request it could overlook, and
+response headers — where the policy actually lives — are ours to set.
+
+## Layer 1 — Content-Security-Policy, per site
+
+`sw.js` attaches a policy to every response. It is built per infohash, so the
+allowed sources are an absolute, path-scoped URL prefix:
+
+```
+default-src 'none';
+base-uri 'none'; object-src 'none'; form-action 'none';
+frame-ancestors <gate-origin>;
+img-src    <gate-origin>/webtorrent/<infoHash>/ data: blob:;
+media-src  <gate-origin>/webtorrent/<infoHash>/ blob:;
+font-src   <gate-origin>/webtorrent/<infoHash>/ data:;
+style-src  <gate-origin>/webtorrent/<infoHash>/ 'unsafe-inline';
+frame-src  <gate-origin>/webtorrent/<infoHash>/;
+child-src  <gate-origin>/webtorrent/<infoHash>/;
+script-src  'none'   |  <…>/<infoHash>/ 'unsafe-inline'   (opt-in)
+connect-src 'none'   |  <…>/<infoHash>/                   (opt-in)
+worker-src  'none'   |  <…>/<infoHash>/                   (opt-in)
+```
+
+Why it is written this way:
+
+- **`default-src 'none'` with an explicit allowlist.** Anything we did not think
+  of is denied rather than allowed. New CSP-governed features arrive denied.
+- **A path prefix, not `'self'`.** CSP matches source expressions by path
+  prefix. Naming `/webtorrent/<infoHash>/` is what stops one torrent from
+  loading another torrent's files: they share an origin, so `'self'` would let
+  them read each other.
+- **No external origins anywhere.** This is the egress block. It applies to
+  images, stylesheets, fonts, media and frames, not only to scripts.
+- **`'unsafe-inline'` for styles.** Real static sites use `<style>` blocks and
+  `style=` attributes, and forbidding them would break most of the web we want
+  to host. A stylesheet cannot exfiltrate by itself: what it may *load* is still
+  pinned to the torrent, and `form-action 'none'` closes the CSS-injection
+  trick of submitting a form to a third party.
+- **`form-action 'none'`.** A form is a network request a reader can be talked
+  into making.
+
+`Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff` are set on
+the same responses. The `Access-Control-Allow-Origin: *` that WebTorrent would
+otherwise send is narrowed to the gate itself.
+
+## Layer 2 — the sandboxed iframe
+
+Sites render in an iframe whose sandbox grants only `allow-same-origin`
+(plus `allow-scripts` when opted in). Everything else is withheld: no top-level
+navigation, so a site cannot replace the gate; no popups, which would otherwise
+be an egress channel CSP does not cover; no forms, no downloads, no plugins, no
+pointer lock, no modals.
+
+### Why `allow-same-origin` is there — and why it cannot be removed
+
+The design one would reach for first is a fully sandboxed frame with an opaque
+origin. Chrome answers it directly:
+
+> Service worker is disabled because the context is sandboxed and lacks the
+> `allow-same-origin` flag.
+
+A document with an opaque origin is never controlled by a service worker. Its
+navigation is not intercepted and neither is any subresource, so the site loads
+nothing at all — this is verified behaviour, not a guess. Serving the sandbox
+flags through `Content-Security-Policy: sandbox` on the response fails the same
+way one step later: the document itself arrives, then every stylesheet and image
+inside it 404s.
+
+So content shares the gate's origin, and isolation comes from the two layers
+above rather than from the origin boundary.
+
+**With scripts off — the default — this is sound.** There is no code inside the
+site that could make use of the shared origin: scripts are blocked twice over,
+by the sandbox and by `script-src 'none'`.
+
+## The known hole: sites with scripts enabled
+
+Scripts are off until the reader turns them on for one specific infohash, and
+the gate states the trade-off before accepting.
+
+A site running with scripts shares the gate's origin, so it can reach
+`window.parent` and tamper with the gate's own chrome — the address bar above it
+is no longer trustworthy. What still holds:
+
+- It cannot reach the network outside its torrent (`connect-src`, and every
+  other fetch directive, stay pinned to the infohash).
+- It cannot read another torrent's files over the network for the same reason.
+- It cannot install a service worker of its own: a registration's script fetch
+  bypasses the active worker and hits the network, and even if it did not, the
+  scope of a script under `/webtorrent/<hash>/` is limited to that path because
+  the gate never sends `Service-Worker-Allowed`.
+- The permission is keyed by infohash, so it is bound to the exact bytes it was
+  granted to and cannot be transferred to different content.
+
+**The fix is a second origin for content**, which turns the shared-origin
+problem into a real boundary. That is a Phase 2 change because it means the gate
+is no longer one bundle on one hostname.
+
+## The gate's own policy
+
+The gate declares its policy in a `<meta>` tag in `index.html`, because a static
+host cannot be relied on to send headers and the policy has to travel with the
+bundle to every mirror. `connect-src` there must allow arbitrary `wss:`: tracker
+URLs come out of whatever magnet the reader pasted.
+
+## Privacy of the address itself
+
+The site reference lives in the URL fragment (`https://gate/#<magnet>`).
+Browsers never send a fragment to the server, so whoever hosts or mirrors the
+gate does not learn which site is being read. Navigating between sites only
+rewrites the fragment; the gate is never reloaded.
+
+Trackers are the exception: joining a swarm tells the tracker, and every peer,
+which infohash you want. This is inherent to BitTorrent, not something the gate
+can paper over.
+
+## Reporting
+
+This is a young project with a deliberately small threat model. If you find
+something that breaks one of the guarantees above — especially an egress path
+out of a scriptless site, or a way for one torrent to read another — please open
+an issue describing the path.
