@@ -13,6 +13,8 @@ import { DEFAULT_TRACKERS, METADATA_TIMEOUT_MS } from './config.js'
 
 /** How long to wait for the worker to claim this page before carrying on. */
 const CONTROLLER_TIMEOUT_MS = 3000
+/** And how long to wait after explicitly asking it to claim us. */
+const CLAIM_TIMEOUT_MS = 3000
 
 /** @type {import('webtorrent').Instance|null} */
 let client = null
@@ -69,20 +71,33 @@ export async function startWorker () {
  * it can still reach this page for torrent data through `includeUncontrolled`.
  */
 async function controllerTakesOver (registration) {
-  const arrived = await Promise.race([
+  if (await controllerChange(CONTROLLER_TIMEOUT_MS)) return
+
+  // Still uncontrolled with a worker sitting right there. Rather than tell the
+  // reader to reload, ask the worker to claim this page. `clients.claim()` is
+  // normally only called on activate, which has long since happened for anyone
+  // whose registration predates this page load.
+  if (registration.active) {
+    console.warn('Spore: page not controlled by the worker; asking it to claim this page.')
+    registration.active.postMessage({ type: 'spore/claim' })
+    if (await controllerChange(CLAIM_TIMEOUT_MS)) return
+
+    console.warn(
+      'Spore: the worker did not take control. Sites may still open, because ' +
+      'the viewer iframe is matched to the worker by URL. If nothing renders, ' +
+      'reload the page normally (not Ctrl+F5, which bypasses the worker).')
+  }
+}
+
+/** Resolve true if the worker takes control within `timeout`. */
+function controllerChange (timeout) {
+  return Promise.race([
     new Promise(resolve => {
       navigator.serviceWorker.addEventListener(
         'controllerchange', () => resolve(true), { once: true })
     }),
-    new Promise(resolve => setTimeout(() => resolve(false), CONTROLLER_TIMEOUT_MS))
+    new Promise(resolve => setTimeout(() => resolve(false), timeout))
   ])
-
-  if (!arrived && registration.active) {
-    console.warn(
-      'Spore: this page is not controlled by the service worker, which is what ' +
-      'a hard reload (Ctrl+F5) does. Sites should still open; a normal reload ' +
-      'restores full control.')
-  }
 }
 
 /** Create the singleton client and point the worker at it. */

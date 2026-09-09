@@ -25,7 +25,7 @@
  * stale one is invisible: everything looks healthy and nothing works. The
  * Diagnostics panel compares the two and says so.
  */
-const VERSION = '2026-09-10.2'
+const VERSION = '2026-09-10.3'
 
 const WEBTORRENT_PREFIX = 'webtorrent/'
 const PORT_TIMEOUT_MS = 5000
@@ -37,7 +37,19 @@ const POLICY_TIMEOUT_MS = 1000
 let streamCancelSupported = false
 
 self.addEventListener('message', event => {
-  if (event.data?.type === 'spore/version') event.ports[0]?.postMessage({ version: VERSION })
+  if (event.data?.type === 'spore/version') {
+    event.ports[0]?.postMessage({ version: VERSION })
+  }
+
+  // A page can end up with an active worker that is not controlling it — a
+  // hard reload produces exactly that, and it is invisible from the page's
+  // side except that nothing works. Claiming on request fixes it without
+  // making the reader reload.
+  if (event.data?.type === 'spore/claim') {
+    event.waitUntil(self.clients.claim().then(
+      () => event.ports[0]?.postMessage({ claimed: true }),
+      error => event.ports[0]?.postMessage({ claimed: false, error: String(error) })))
+  }
 })
 
 self.addEventListener('install', () => self.skipWaiting())

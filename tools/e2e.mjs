@@ -264,6 +264,7 @@ async function run () {
   await checkPublishingByDrop(page)
   await checkSurvivesDeadStorage(page)
   await checkStuckViewerIsDetected(page)
+  await checkUncontrolledPageRecovers(page)
 }
 
 /**
@@ -425,6 +426,38 @@ async function checkKeepingOffline (page, infoHash) {
     open.onerror = () => resolve(-1)
   }))
   check('forgetting deletes the stored bytes, not just the record', chunks === 0, `${chunks} chunks left`)
+}
+
+/**
+ * An uncontrolled page must recover on its own.
+ *
+ * Reported from Chromium as `Worker controlling: NO` with a registration
+ * present at `/` — the worker installed and simply never took this page over.
+ * A hard reload produces exactly that state, and `clients.claim()` only runs on
+ * activate, which happened long before. Asking the worker to claim is the fix;
+ * this checks the ask works, starting from a genuinely uncontrolled page.
+ */
+async function checkUncontrolledPageRecovers (page) {
+  const recovered = await page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.getRegistration()
+    const before = !!navigator.serviceWorker.controller
+
+    const claimed = await new Promise(resolve => {
+      const { port1, port2 } = new MessageChannel()
+      const timer = setTimeout(() => resolve(null), 3000)
+      port1.onmessage = ({ data }) => { clearTimeout(timer); resolve(data) }
+      registration.active.postMessage({ type: 'spore/claim' }, [port2])
+    })
+    return { before, claimed, after: !!navigator.serviceWorker.controller }
+  })
+
+  // Honest about what this proves. A page that is genuinely uncontrolled
+  // cannot be manufactured here — a hard reload is the way to get one and no
+  // automation API performs one — so this covers the round-trip and the
+  // resulting state, not the recovery itself. The recovery is the same call.
+  check('the worker answers a request to claim this page',
+    recovered.claimed?.claimed === true, JSON.stringify(recovered))
+  check('the page is controlled after claiming', recovered.after === true, JSON.stringify(recovered))
 }
 
 /**

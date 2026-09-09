@@ -30,4 +30,4 @@ export const METADATA_TIMEOUT_MS = 60_000
  * been updated, and the symptom is that everything reports healthy while
  * nothing renders — so Diagnostics compares them and flags a mismatch.
  */
-export const EXPECTED_WORKER_VERSION = '2026-09-10.2'
+export const EXPECTED_WORKER_VERSION = '2026-09-10.3'

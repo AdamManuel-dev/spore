@@ -43,9 +43,21 @@ export async function collectDiagnostics () {
 
     try {
       const registrations = await navigator.serviceWorker.getRegistrations()
-      add('Registrations', registrations.length
-        ? registrations.map(r => r.scope.replace(location.origin, '') || '/').join(', ')
-        : 'none', registrations.length > 0)
+      if (registrations.length === 0) {
+        add('Registrations', 'none', false)
+      }
+      for (const registration of registrations) {
+        // Which of the three slots the worker sits in is the difference between
+        // "installed and idle", "queued behind an old one" and "failed to
+        // start" — three very different problems that all look identical from
+        // the page when it is left uncontrolled.
+        const state = ['installing', 'waiting', 'active']
+          .filter(slot => registration[slot])
+          .map(slot => `${slot}=${registration[slot].state}`)
+          .join(', ') || 'no worker in any slot'
+        add(`Registration ${registration.scope.replace(location.origin, '') || '/'}`,
+          state, !!registration.active)
+      }
     } catch (err) {
       add('Registrations', `unreadable: ${err.message}`, false)
     }
