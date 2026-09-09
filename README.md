@@ -107,6 +107,43 @@ shareable link, and your tab becomes the site's first seed.
 
 Every reader who opens the link seeds it too, for as long as their tab is open.
 
+## Seeding from a server
+
+A browser seeds only while its tab is open. To keep a site up regardless, run a
+seeder that stays running — but it has to speak **WebRTC**, because that is the
+only transport a browser peer can use. An ordinary BitTorrent client
+(transmission, rtorrent, a NAS) cannot serve a Spore site no matter how
+correctly it seeds the same infohash. That single fact is what most guides on
+this are really working around.
+
+Modern WebTorrent does WebRTC in Node directly, so it takes one dependency and
+one line — `webtorrent-hybrid`, which older guides install, is no longer
+needed:
+
+```sh
+npm install webtorrent node-datachannel
+node tools/seed.mjs ./my-site
+```
+
+It prints the magnet and holds it. Verified end to end: the seeder reported
+`1 peer  ↑ 15 kB` while a browser gate rendered the site from it in about six
+seconds, with no other peer anywhere.
+
+**To keep an existing link**, do not re-publish the folder — re-creating a
+torrent does not reliably reproduce the same infohash, and a different
+infohash is a different site. Open the site in the gate, press
+**Save .torrent** in the status bar, and give the server that file:
+
+```sh
+node tools/seed.mjs my-site.torrent --path /srv/sites
+```
+
+`--path` is the directory containing the site's folder. WebTorrent verifies
+what is already on disk and seeds it under the original infohash.
+
+Keep it running however you keep anything running — `systemd`, `pm2`, a
+`tmux` window. Nothing about Spore cares which.
+
 ## Keeping a site
 
 Spore writes nothing to disk by default — no cache, no history. **Keep offline**

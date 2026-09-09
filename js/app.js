@@ -48,6 +48,7 @@ const ui = {
   errorRef: el('error-ref'),
   errorRetry: el('error-retry'),
   errorHome: el('error-home'),
+  saveTorrent: el('save-torrent'),
   diagnose: el('diagnose'),
   diagnostics: el('diagnostics'),
   diagnosticsBody: el('diagnostics-body'),
@@ -87,6 +88,7 @@ async function boot () {
   ui.keep.addEventListener('change', onKeepToggle)
   ui.copy.addEventListener('click', onCopy)
   ui.shareDismiss.addEventListener('click', () => { ui.share.hidden = true })
+  ui.saveTorrent.addEventListener('click', onSaveTorrent)
   ui.diagnose.addEventListener('click', showDiagnostics)
   ui.diagnosticsClose.addEventListener('click', () => ui.diagnostics.close())
   ui.diagnosticsReset.addEventListener('click', onReset)
@@ -267,6 +269,7 @@ async function render (torrent, entry) {
   ui.keep.checked = await isKept(torrent.infoHash)
   ui.keep.disabled = false
   ui.keepLabel.hidden = false
+  ui.saveTorrent.hidden = false
   const shown = ui.viewer.show(entryURL(torrent.infoHash, entry), { scripts: allowed })
   ui.welcome.hidden = true
   ui.notice.hidden = true
@@ -446,6 +449,28 @@ function renderKeptSite (site) {
 
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Hand the .torrent to something that can seed it around the clock.
+ *
+ * A browser stops seeding when its tab closes, so a site that should stay up
+ * needs a seeder outside the browser (tools/seed.mjs is one). Re-creating the
+ * torrent from the same folder does not reliably reproduce the same infohash,
+ * and a different infohash is a different site with a different link — so the
+ * exact torrent has to travel, not just the files.
+ */
+function onSaveTorrent () {
+  if (!current) return
+  const { torrent } = current
+
+  const blob = new Blob([torrent.torrentFile], { type: 'application/x-bittorrent' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${torrent.name ?? torrent.infoHash}.torrent`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 /* -------------------------------------------------------------------------- */
 /* Diagnostics                                                                 */
 /* -------------------------------------------------------------------------- */
@@ -603,6 +628,7 @@ function showWelcome () {
   ui.scriptsLabel.hidden = true
   ui.keep.disabled = true
   ui.keepLabel.hidden = true
+  ui.saveTorrent.hidden = true
   ui.status.textContent = 'Nothing open'
   showSeedingCount()
   ui.progress.textContent = ''
