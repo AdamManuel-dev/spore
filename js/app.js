@@ -213,12 +213,42 @@ async function render (torrent, entry) {
   ui.keep.checked = await isKept(torrent.infoHash)
   ui.keep.disabled = false
   ui.keepLabel.hidden = false
-  ui.viewer.show(entryURL(torrent.infoHash, entry), { scripts: allowed })
+  const shown = ui.viewer.show(entryURL(torrent.infoHash, entry), { scripts: allowed })
   ui.welcome.hidden = true
   ui.notice.hidden = true
   ui.status.textContent = torrent.name ?? torrent.infoHash
 
   watchStats(torrent)
+
+  // Awaited last, deliberately: this only reports a frame that never navigated
+  // and must not hold up one that does.
+  if (!(await shown)) warnViewerStuck()
+}
+
+/**
+ * The viewer never left `about:blank`.
+ *
+ * Nothing else notices this — the torrent is complete, the worker is running,
+ * every indicator reads healthy, and the reader is looking at an empty frame
+ * with nothing in the console. It was reported exactly that way. Say it out
+ * loud, and put the whole diagnostic picture where a reader will copy it from.
+ */
+async function warnViewerStuck () {
+  // The message goes up first: collecting diagnostics probes the network and
+  // takes seconds, and the reader is already staring at an empty rectangle.
+  ui.notice.textContent =
+    'The site downloaded but the viewer stayed blank. Open Diagnostics in the ' +
+    'status bar — the "Viewer response" line says what the service worker ' +
+    'returned for it. The full picture is in the browser console too.'
+  ui.notice.className = 'notice notice--error'
+  ui.notice.hidden = false
+
+  console.warn('Spore: the viewer never navigated. Full diagnostics follow.')
+  try {
+    console.table(await collectDiagnostics())
+  } catch (err) {
+    console.warn('Spore: diagnostics could not be collected:', err)
+  }
 }
 
 const SCRIPTS_WARNING = `Run this site's scripts?
@@ -249,7 +279,8 @@ async function onScriptsToggle () {
   setScriptsAllowed(torrent.infoHash, ui.scripts.checked)
 
   const entry = findEntry(torrent)
-  await ui.viewer.show(entryURL(torrent.infoHash, entry), { scripts: ui.scripts.checked })
+  const shown = await ui.viewer.show(entryURL(torrent.infoHash, entry), { scripts: ui.scripts.checked })
+  if (!shown) warnViewerStuck()
 }
 
 /* -------------------------------------------------------------------------- */

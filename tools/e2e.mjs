@@ -263,6 +263,7 @@ async function run () {
   await checkKeepingOffline(page, infoHash)
   await checkPublishingByDrop(page)
   await checkSurvivesDeadStorage(page)
+  await checkStuckViewerIsDetected(page)
 }
 
 /**
@@ -424,6 +425,37 @@ async function checkKeepingOffline (page, infoHash) {
     open.onerror = () => resolve(-1)
   }))
   check('forgetting deletes the stored bytes, not just the record', chunks === 0, `${chunks} chunks left`)
+}
+
+/**
+ * A viewer that never navigates must be detected, not left blank.
+ *
+ * Reported as "I see the frame of the website but not the content", with the
+ * only trace a console line showing the frame still on about:blank. The silence
+ * was as much the bug as the blank frame.
+ *
+ * Driving Viewer directly is deliberate. The obvious approach — blocking the
+ * frame's request — cannot work, and finding out why was the useful part: the
+ * service worker answers that request, so it never reaches the network layer an
+ * automation tool can interfere with. A URL the gate's own `frame-src` refuses
+ * leaves the frame exactly where the report described it.
+ */
+async function checkStuckViewerIsDetected (page) {
+  const result = await page.evaluate(async () => {
+    const { Viewer } = await import('/js/viewer.js')
+    const frame = document.createElement('iframe')
+    frame.src = 'about:blank'
+    document.body.append(frame)
+    const viewer = new Viewer(frame)
+
+    const refused = await viewer.show('https://example.invalid/nope.html', { scripts: false })
+    const accepted = await viewer.show(location.origin + '/example-site/index.html', { scripts: false })
+    frame.remove()
+    return { refused, accepted }
+  })
+
+  check('a viewer that never navigates is detected', result.refused === false, JSON.stringify(result))
+  check('a viewer that does navigate is not falsely accused', result.accepted === true, JSON.stringify(result))
 }
 
 /**

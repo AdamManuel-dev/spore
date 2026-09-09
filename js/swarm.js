@@ -11,6 +11,9 @@
 import WebTorrent from '../vendor/webtorrent.min.js'
 import { DEFAULT_TRACKERS, METADATA_TIMEOUT_MS } from './config.js'
 
+/** How long to wait for the worker to claim this page before carrying on. */
+const CONTROLLER_TIMEOUT_MS = 3000
+
 /** @type {import('webtorrent').Instance|null} */
 let client = null
 
@@ -46,11 +49,40 @@ export async function startWorker () {
   registration.update().catch(() => {})
 
   if (!navigator.serviceWorker.controller) {
-    await new Promise(resolve => {
-      navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true })
-    })
+    await controllerTakesOver(registration)
   }
   return registration
+}
+
+/**
+ * Wait for the worker to take control — but not forever.
+ *
+ * A hard reload (Ctrl+F5, Ctrl+Shift+R) deliberately bypasses the service
+ * worker, so the page it produces is *uncontrolled* and no `controllerchange`
+ * is ever coming: `clients.claim()` already ran when the worker activated.
+ * Waiting on that event unconditionally meant the gate never finished starting
+ * for anyone in the habit of hard-reloading — the one habit a person debugging
+ * a stubborn page is most likely to have.
+ *
+ * An uncontrolled page is not fatal. The worker still handles the viewer's
+ * iframe, because a nested navigation is matched to a registration by URL, and
+ * it can still reach this page for torrent data through `includeUncontrolled`.
+ */
+async function controllerTakesOver (registration) {
+  const arrived = await Promise.race([
+    new Promise(resolve => {
+      navigator.serviceWorker.addEventListener(
+        'controllerchange', () => resolve(true), { once: true })
+    }),
+    new Promise(resolve => setTimeout(() => resolve(false), CONTROLLER_TIMEOUT_MS))
+  ])
+
+  if (!arrived && registration.active) {
+    console.warn(
+      'Spore: this page is not controlled by the service worker, which is what ' +
+      'a hard reload (Ctrl+F5) does. Sites should still open; a normal reload ' +
+      'restores full control.')
+  }
 }
 
 /** Create the singleton client and point the worker at it. */

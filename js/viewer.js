@@ -39,6 +39,9 @@
  * origin for content, which is a Phase 2 change. Until then the opt-in asks.
  */
 
+/** How long a site's entry page gets to load before we call it stuck. */
+const LOAD_TIMEOUT_MS = 15_000
+
 /** Nothing is granted that the site has not been given a reason to have. */
 const BASE_SANDBOX = ['allow-same-origin']
 
@@ -51,7 +54,7 @@ export class Viewer {
   /**
    * @param {string} url  worker-served URL of the site's entry page
    * @param {{ scripts: boolean }} policy
-   * @returns {Promise<void>} resolves once the load has been started
+   * @returns {Promise<boolean>} whether the frame actually navigated
    */
   async show (url, policy) {
     const sandbox = [...BASE_SANDBOX]
@@ -65,8 +68,43 @@ export class Viewer {
     await this.clear()
 
     this.frame.setAttribute('sandbox', sandbox.join(' '))
+
+    // Watch the navigation rather than assume it. A viewer stuck on
+    // `about:blank` is the worst failure this app has: the reader sees an empty
+    // page, the console says nothing, and every other indicator reads healthy.
+    const settled = new Promise(resolve => {
+      let timer
+      const finish = () => { clearTimeout(timer); resolve() }
+      timer = setTimeout(finish, LOAD_TIMEOUT_MS)
+      this.frame.addEventListener('load', finish, { once: true })
+    })
+
     this.frame.src = url
     this.frame.hidden = false
+
+    await settled
+    return this.landedOn(url)
+  }
+
+  /**
+   * Did the frame really end up showing that page?
+   *
+   * The `load` event is not the answer on its own: a navigation the browser
+   * refuses still fires it, having put an error page — or nothing — in the
+   * frame. The document's own URL is the honest signal. Sites are served from
+   * this origin (see above), so the frame is readable from here.
+   */
+  landedOn (url) {
+    let document
+    try {
+      document = this.frame.contentDocument
+    } catch {
+      return true // cross-origin somehow: no view, so no accusation
+    }
+    if (!document) return false
+    if (document.URL !== url) return false
+    return (document.body?.childElementCount ?? 0) > 0 ||
+      (document.body?.textContent ?? '').trim().length > 0
   }
 
   /** @returns {Promise<void>} resolves when the frame holds nothing */

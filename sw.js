@@ -25,10 +25,12 @@
  * stale one is invisible: everything looks healthy and nothing works. The
  * Diagnostics panel compares the two and says so.
  */
-const VERSION = '2026-09-10.1'
+const VERSION = '2026-09-10.2'
 
 const WEBTORRENT_PREFIX = 'webtorrent/'
 const PORT_TIMEOUT_MS = 5000
+/** How long to wait for a tab to answer with the file before giving up. */
+const PAGE_TIMEOUT_MS = 20000
 const POLICY_TIMEOUT_MS = 1000
 
 /** Set once WebTorrent confirms the browser can cancel worker ReadableStreams. */
@@ -193,7 +195,13 @@ async function serve (event, torrentPath) {
     policyFor(infoHash),
     requestFromPage(request)
   ])
-  if (!upstream) return new Response('No Spore tab is serving this torrent.', { status: 503 })
+  if (!upstream) {
+    return new Response(
+      'No Spore tab answered for this torrent within ' + (PAGE_TIMEOUT_MS / 1000) + ' seconds.\n\n' +
+      'The tab that holds the swarm has to stay open, and it has to have this ' +
+      'torrent loaded. If this tab is the one, reload it.',
+      { status: 504, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+  }
 
   const { data, port } = upstream
   const headers = new Headers(data.headers)
@@ -225,9 +233,16 @@ async function requestFromPage (request) {
   if (windows.length === 0) return null
 
   return new Promise(resolve => {
+    // Never wait indefinitely. `respondWith` on a promise that never settles
+    // leaves the frame blank forever with nothing in the console — the reader
+    // sees the viewer appear and stay empty, which is unreportable. A timeout
+    // turns that into an error page that says what happened.
+    const timer = setTimeout(() => resolve(null), PAGE_TIMEOUT_MS)
+    const answer = value => { clearTimeout(timer); resolve(value) }
+
     for (const client of windows) {
       const { port1, port2 } = new MessageChannel()
-      port1.onmessage = ({ data }) => resolve({ data, port: port1 })
+      port1.onmessage = ({ data }) => answer({ data, port: port1 })
       client.postMessage({
         url: request.url,
         method: request.method,
