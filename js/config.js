@@ -23,3 +23,11 @@ export const TORRENT_PATH = 'webtorrent'
 
 /** Give up waiting for a torrent's metadata after this long. */
 export const METADATA_TIMEOUT_MS = 60_000
+
+/**
+ * The version of `sw.js` this bundle expects to be talking to. Bump both
+ * together. A worker from an older release keeps serving after the page has
+ * been updated, and the symptom is that everything reports healthy while
+ * nothing renders — so Diagnostics compares them and flags a mismatch.
+ */
+export const EXPECTED_WORKER_VERSION = '2026-09-10.1'

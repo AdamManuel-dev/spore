@@ -19,12 +19,24 @@
  * gate does not rewrite HTML or invent custom tags: there is nothing to miss.
  */
 
+/**
+ * Bump whenever this file changes, together with EXPECTED_WORKER_VERSION in
+ * js/config.js. A service worker can outlive the page that installed it, and a
+ * stale one is invisible: everything looks healthy and nothing works. The
+ * Diagnostics panel compares the two and says so.
+ */
+const VERSION = '2026-09-10.1'
+
 const WEBTORRENT_PREFIX = 'webtorrent/'
 const PORT_TIMEOUT_MS = 5000
 const POLICY_TIMEOUT_MS = 1000
 
 /** Set once WebTorrent confirms the browser can cancel worker ReadableStreams. */
 let streamCancelSupported = false
+
+self.addEventListener('message', event => {
+  if (event.data?.type === 'spore/version') event.ports[0]?.postMessage({ version: VERSION })
+})
 
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()))
