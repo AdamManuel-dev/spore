@@ -3,12 +3,90 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>About this spore</title>
+<title>How Spore works</title>
 <link rel="stylesheet" href="css/site.css">
 </head>
 <body>
-<h1>Second page</h1>
-<p>Relative navigation works: this file was fetched from the swarm too.</p>
-<p><a href="index.html">Back</a></p>
+
+<p class="back"><a href="index.html">← Spore</a></p>
+
+<h1>How it works</h1>
+
+<p class="subtitle">The mechanism, and the two places it is not what you would
+   first design.</p>
+
+<h2>The shape of it</h2>
+
+<p>The gate is a static page. There is no application server anywhere in the
+   design, and adding one would defeat the point — a backend is a host, and a
+   host is the thing being removed from the picture.</p>
+
+<ol>
+  <li><strong>The address lives in the URL fragment</strong>
+      (<code>https://gate/#&lt;magnet&gt;</code>). Browsers never send a
+      fragment to the server, so whoever hosts the gate does not learn which
+      site you opened. The gate's operator cannot keep a log they never
+      receive.</li>
+  <li><strong>A BitTorrent client runs in the page.</strong> It has to be in the
+      page: a service worker cannot open the WebRTC connections that reach other
+      browsers.</li>
+  <li><strong>A service worker serves the site</strong> from the swarm at
+      <code>/webtorrent/&lt;infohash&gt;/…</code>. Every request the site makes
+      — stylesheets, images, fonts, nested frames — is a fetch this worker
+      answers.</li>
+  <li><strong>The site renders in a sandboxed frame,</strong> under a policy the
+      worker attaches to every response.</li>
+</ol>
+
+<p>Step 3 is why the gate never rewrites a site's HTML or invents custom tags to
+   load its images. A service worker sees <em>every</em> request its pages make,
+   so there is nothing for a rewriting scheme to overlook — and the response
+   headers, where the security policy lives, are ours to set.</p>
+
+<h2>Two things that are not what you would design</h2>
+
+<p><strong>Sites share the gate's origin, and they must.</strong> The obvious
+   design is a fully sandboxed frame with an opaque origin. Browsers refuse:
+   a document with an opaque origin is never controlled by a service worker, so
+   it loads nothing at all — not the page, not one stylesheet. Since the worker
+   is how sites are served, sites live on the gate's origin, and isolation comes
+   from the sandbox flags and the policy instead.</p>
+
+<p><strong>One site is kept out of another's files by the worker, not by the
+   policy.</strong> The first version pinned every policy source to that
+   torrent's own path and leaned on the browser to enforce it. One major browser
+   enforced it correctly; another refused a site's own stylesheets under the
+   same rule. A boundary that browsers disagree about is in the wrong place, so
+   the check moved into code we control: before serving a file, the worker works
+   out which torrent is asking, and refuses anything from a different one.</p>
+
+<h2>What a published site must look like</h2>
+
+<p>A folder with <code>index.html</code> at the top and relative links inside.
+   That is the whole contract. It renders exactly as it would from any static
+   web server, because that is all it is — no build step, no framework, no
+   manifest to write.</p>
+
+<p>Scripts are off by default and switched on per site, by the reader, after
+   being told what that costs. Sites are documents here; the ones that need to
+   run code should expect to ask.</p>
+
+<h2>The uncomfortable parts</h2>
+
+<p>Enabling scripts for a site lets it reach the gate's own page, because they
+   share an origin. It still cannot reach the network beyond its torrent, but it
+   could interfere with the address bar above it. Closing that properly needs a
+   second origin for content, which is a later change; until then the toggle
+   asks first and says why.</p>
+
+<p>Trackers are the other soft spot. Browsers can only find peers through a few
+   public WebSocket trackers, which is a small number of shared services in a
+   design that is otherwise about not depending on any. They learn which
+   infohash you asked for. They cannot serve you the wrong bytes — the hash
+   settles that — but they are a chokepoint, and an honest description of the
+   system has to say so.</p>
+
+<p class="back"><a href="index.html">← Back to the paper</a></p>
+
 </body>
 </html>

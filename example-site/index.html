@@ -3,38 +3,172 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hello from a spore</title>
+<title>Spore — a web that outlives its hosts</title>
 <link rel="stylesheet" href="css/site.css">
 </head>
 <body>
-<h1>Hello from a spore</h1>
-<p>This page came out of a torrent. So did its stylesheet and the image below —
-   every one of them fetched from the swarm by the service worker, not from a
-   web server.</p>
-<img src="css/leaf.svg" alt="A leaf" width="120" height="120">
-<h2>What should happen</h2>
+
+<header class="masthead">
+  <img src="css/leaf.svg" alt="" width="72" height="72">
+  <div>
+    <h1>Spore</h1>
+    <p class="subtitle">A web that outlives its hosts</p>
+  </div>
+</header>
+
+<p class="note"><strong>You are reading this from a torrent.</strong> No web
+   server sent you this page. It came from someone's open browser tab, and
+   while you read it, your browser is offering it to the next person.</p>
+
+<h2>The problem is hosting, not publishing</h2>
+
+<p>Publishing on the web is free. <em>Staying</em> published is not. Every page
+   you can read exists because somebody is paying for a server, renewing a
+   domain, and remaining reachable — and because nobody with leverage over that
+   host has asked them to stop.</p>
+
+<p>So the web has one failure mode, wearing several costumes:</p>
+
 <ul>
-  <li>The heading is green: <code>css/site.css</code> loaded.</li>
-  <li>The leaf is visible: a relative image path resolved inside the torrent.</li>
-  <li><a href="about.html">This link</a> opens a second page without leaving the gate.</li>
-  <li>The box below stays red unless you enable scripts for this site.</li>
+  <li><strong>Takedown.</strong> Pressure the host, the registrar, or the
+      payment processor. The content does not need to be illegal, only
+      inconvenient to someone with a lawyer.</li>
+  <li><strong>Link rot.</strong> Nobody renews. Nobody is attacked. The page
+      simply stops, because the person maintaining it lost interest, funding,
+      or their life.</li>
+  <li><strong>Consolidation.</strong> Hosting is cheapest at scale, so most of
+      the web now sits on a handful of providers. A small number of decisions
+      can unmake a large number of pages.</li>
 </ul>
+
+<p>These look like different problems. They are one problem: <strong>a page has
+   exactly one home, and that home has an owner who can be reached.</strong></p>
+
+<h2>What Spore does</h2>
+
+<p>Spore addresses a site by the hash of its contents rather than by the name of
+   a machine. Ask for a site and any peer holding those bytes can answer; the
+   hash proves the answer is right. There is no host to petition, because there
+   is no host — only whoever currently has a copy.</p>
+
+<p>Concretely, it is one static page — the <strong>gate</strong> — that does two
+   things:</p>
+
+<ol>
+  <li><strong>Opens a site from a magnet link.</strong> The site renders in your
+      browser, fetched from other people's browsers over WebRTC.</li>
+  <li><strong>Publishes a folder.</strong> Drop a folder with an
+      <code>index.html</code>; it is hashed locally, and you get a link. Nothing
+      is uploaded anywhere, because there is nowhere to upload it to.</li>
+</ol>
+
+<p>The gate itself is a handful of static files with no backend, so it can be
+   re-hosted by anyone in a minute. Taking down one gate accomplishes nothing:
+   the same link opens on any other. <a href="about.html">How it works, in
+   detail →</a></p>
+
+<h2>Why adoption is not a vanity metric</h2>
+
+<p>For most projects, users are a measure of success. For Spore, users
+   <em>are</em> the infrastructure — adoption is not evidence that it works, it
+   is the mechanism by which it works.</p>
+
+<p>A site lives as long as somebody has it open. One reader is a single point of
+   failure wearing a different hat. A hundred readers is a hundred independent
+   copies, in a hundred jurisdictions, with no shared owner and nobody to serve
+   a notice on.</p>
+
+<p>This inverts the usual economics of the web. Normally, popularity is a
+   <em>cost</em>: more readers, more bandwidth, a larger bill, and a bigger
+   target. Here, popularity is <em>redundancy</em>. The pages most worth
+   removing are the ones hardest to remove, because being widely read is the
+   same act as being widely hosted.</p>
+
+<p>Which is also the honest catch. <strong>Spore is weakest at exactly the
+   moment a publisher needs it most:</strong> the beginning, when one person has
+   the only copy. It does not manufacture resilience. It converts attention into
+   resilience, and it needs attention to convert.</p>
+
+<h2>Who this is for</h2>
+
+<p>Spore solves one problem — <em>the host went away</em> — and solves it well.
+   It solves nothing else. That makes the audience specific:</p>
+
+<ul>
+  <li><strong>Archivists and preservationists.</strong> Documentation, datasets,
+      fan wikis, the corpus of a dead forum. The threat is not censorship, it is
+      entropy: somebody stops paying and a decade evaporates. A magnet link
+      shared among people who care is a backup that serves itself.</li>
+  <li><strong>Writers and researchers who want a permanent link.</strong> A
+      paper, a report, a personal site. Publish once, and the address stays
+      valid without renting anything, forever, as long as one reader cares.</li>
+  <li><strong>People publishing something inconvenient.</strong> Where the
+      danger is the work being <em>removed</em> — read the limits below
+      carefully, because if the danger is being <em>identified</em>, this is the
+      wrong tool and will get you hurt.</li>
+  <li><strong>Anyone who wants to run a mirror.</strong> Hosting a gate costs a
+      static file host and nothing else. Every mirror makes every site reachable
+      from one more address.</li>
+</ul>
+
+<p>Equally, who it is <em>not</em> for: anything needing a database, logins,
+   payments, or content that changes by the minute. Spore hosts documents, not
+   applications.</p>
+
+<h2>What it refuses to promise</h2>
+
+<p>A tool that overstates itself gets people hurt, so plainly:</p>
+
+<ul>
+  <li><strong>It is not anonymity.</strong> Peers in a swarm see each other's IP
+      addresses — that is how the transfer happens. Spore protects
+      <em>content</em> from removal. It does not hide who published or who is
+      reading, and no amount of adoption changes that.</li>
+  <li><strong>It is not always-on yet.</strong> A browser seeds only while its
+      tab is open. Close every tab that has a site, and the site sleeps until
+      someone with a copy opens it again. The bytes are not lost; nobody is
+      holding them out.</li>
+  <li><strong>Sites do not change yet.</strong> A magnet addresses fixed bytes,
+      so an edit produces a new address. Mutable pointers are planned; they are
+      not here.</li>
+</ul>
+
+<h2>The claims, testable from this page</h2>
+
+<p>Everything below is running right now, in the frame you are reading.</p>
+
+<p>A site gets <strong>no network egress</strong>: it cannot make your browser
+   contact anything outside its own torrent, so it cannot report that you were
+   here. Not through scripts — through anything. Both images below point
+   somewhere they must never reach, and both must stay broken:</p>
+
+<ul class="probes">
+  <li><img src="https://example.invalid/pixel.png" alt="off-site pixel: must not load" width="16" height="16">
+      an off-site image, the classic way a document phones home</li>
+  <li><img src="../../0000000000000000000000000000000000000000/pixel.png" alt="other torrent: must not load" width="16" height="16">
+      a file from a different torrent, reached by climbing out of this one</li>
+</ul>
+
+<p>A site gets <strong>no scripts</strong> until you say so, per site. The box
+   below is inert unless you enable them with the toggle above:</p>
+
 <p id="probe" class="probe">Scripts are off.</p>
 
-<h2>Egress probes</h2>
-<p>Both images below are deliberately pointed somewhere they must never be
-   allowed to go. Neither is a script, which is the point: without a network
-   egress block, plain markup like this is enough to tell a third party who is
-   reading. They should stay broken, and the browser console should say
-   <code>Refused to load … Content Security Policy</code>.</p>
-<ul>
-  <li><img src="https://example.invalid/pixel.png" alt="off-site pixel: must not load" width="16" height="16">
-      an off-site image — would reveal the reader's IP address</li>
-  <li><img src="../../0000000000000000000000000000000000000000/pixel.png" alt="other torrent: must not load" width="16" height="16">
-      a file from a different torrent, reached by climbing out of this one's
-      path — sites share an origin, so only the path-scoped CSP keeps them
-      apart</li>
-</ul>
+<p class="muted">If either image loads, or that box changes colour on its own,
+   the security model is broken and the project has a bug worth reporting.</p>
+
+<h2>Where this is going</h2>
+
+<p>Today: open a site, publish a site. That is the whole of it, and it works.</p>
+
+<p>Next: mutable pointers, so a site can be updated without a new address, and
+   a signed index so sites can be found rather than only shared. After that:
+   seeders that run outside a browser, so a site survives everyone closing
+   their tab — and a gate pinned by its own hash, so you can verify the gate
+   before trusting it with a page.</p>
+
+<p class="cta">The useful thing you can do right now is the boring one: publish
+   something, and keep this tab open a little longer than you need to.</p>
 
 <script src="probe.js"></script>
 </body>

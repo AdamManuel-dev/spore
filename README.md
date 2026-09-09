@@ -66,8 +66,12 @@ that the origin is a secure context and everything behaves normally.
 **In production this is a non-issue**: served over HTTPS from any static host,
 mobile browsers get a service worker like desktop ones do.
 
-Then either drop `example-site/` onto the page to publish it, or paste a magnet
-into the address bar.
+Then drop `example-site/` onto the page to publish it. That folder is the
+Spore whitepaper — what it is, why adoption is the mechanism rather than the
+scoreboard, who it is for, and what it refuses to promise. It is also the test
+fixture, which is deliberate: every claim it makes about the security model is
+demonstrated live on the page, so a broken guarantee shows up as a broken
+document.
 
 ## How it works
 
@@ -167,7 +171,7 @@ js/
 vendor/             WebTorrent, committed verbatim (see vendor/README.md)
 tools/serve.mjs     dev server
 tools/e2e.mjs       browser check of both MVP promises and the security model
-example-site/       a site to publish while testing
+example-site/       the Spore whitepaper, published through Spore
 ```
 
 There is no build step and no dependency to install. Clone it, serve the

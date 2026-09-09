@@ -169,7 +169,7 @@ async function run () {
     imageLoaded: document.images[0]?.complete && document.images[0]?.naturalWidth > 0,
     probe: document.getElementById('probe')?.textContent
   }))
-  check('the page renders out of the swarm', rendered.heading === 'Hello from a spore', rendered.heading)
+  check('the page renders out of the swarm', rendered.heading === 'Spore', rendered.heading)
   check('a relative stylesheet loads', rendered.headingColour === 'rgb(47, 143, 69)', rendered.headingColour)
   check('a relative image loads', rendered.imageLoaded === true)
   check('scripts do not run by default', rendered.probe === 'Scripts are off.', rendered.probe)
@@ -206,7 +206,7 @@ async function run () {
   await site.evaluate(() => document.querySelector('a[href="about.html"]').click()).catch(() => {})
   await wait(3000)
   const second = await (await siteFrame(page)).evaluate(() => document.querySelector('h1')?.textContent)
-  check('a relative link opens a second page from the torrent', second === 'Second page', second)
+  check('a relative link opens a second page from the torrent', second === 'How it works', second)
 
   await page.evaluate(() => {
     const frame = document.getElementById('viewer')
@@ -594,7 +594,7 @@ async function checkKeptSiteSurvivesReload (page) {
   if (rendered) {
     const frame = victim.frames().find(f => f.url().includes('/webtorrent/'))
     const heading = await frame?.evaluate(() => document.querySelector('h1')?.textContent)
-    check('and it renders from disk, not from a peer', heading === 'Hello from a spore', heading)
+    check('and it renders from disk, not from a peer', heading === 'Spore', heading)
   }
 
   await kept.close()
