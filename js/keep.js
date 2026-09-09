@@ -115,16 +115,44 @@ export async function restoreAll (client) {
   let restored = 0
 
   for (const site of sites) {
-    try {
-      await restore(client, site)
-      restored++
-    } catch {
-      // A site whose stored pieces no longer verify is not fatal: the gate
-      // still works, and the site can be re-fetched from the swarm.
-      failed.push(site.infoHash)
-    }
+    // A site whose stored pieces no longer verify is not fatal: the gate still
+    // works, and the site can be re-fetched from the swarm.
+    if (await restoreOne(client, site.infoHash)) restored++
+    else failed.push(site.infoHash)
   }
   return { restored, failed }
+}
+
+/** Restores in flight, so the same site is never added to the client twice. */
+const restoring = new Map()
+
+/**
+ * Bring one kept site back from disk, if it is kept.
+ *
+ * Opening a site has to go through here first. `restoreAll` runs in the
+ * background at startup so that unhealthy storage cannot hold up the whole
+ * gate, and that left a race: whichever added the infohash first won, and when
+ * the ordinary swarm path won, the copy on disk was never touched. A kept site
+ * then sat looking for peers that no longer existed — exactly the thing keeping
+ * it was supposed to prevent.
+ *
+ * @returns {Promise<boolean>} whether the site is now loaded from disk
+ */
+export function restoreOne (client, infoHash) {
+  if (!infoHash) return Promise.resolve(false)
+  if (restoring.has(infoHash)) return restoring.get(infoHash)
+
+  const job = (async () => {
+    const site = await getSite(infoHash)
+    if (!site) return false
+    await restore(client, site)
+    return true
+  })()
+    .catch(() => false)
+    .finally(() => restoring.delete(infoHash))
+
+  restoring.set(infoHash, job)
+  return job
 }
 
 async function restore (client, site) {

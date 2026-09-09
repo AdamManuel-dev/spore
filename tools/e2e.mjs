@@ -287,6 +287,7 @@ async function run () {
   await checkStuckViewerIsDetected(page)
   await checkUncontrolledPageRecovers(page)
   await checkMissingSiteAndHome(page)
+  await checkKeptSiteSurvivesReload(page)
 }
 
 /**
@@ -535,6 +536,68 @@ async function checkMissingSiteAndHome (page) {
     await page.evaluate(() => location.hash))
   await page.evaluate(() => history.pushState(null, '', location.pathname))
   await page.evaluate(() => { location.hash = '' })
+}
+
+/**
+ * A kept site survives a reload with nobody seeding it.
+ *
+ * The reported sequence: keep a site, close the tab that published it, reload.
+ * The site was lost — which is precisely what keeping it is supposed to
+ * prevent. Reloading discards the client, so after it there is no peer
+ * anywhere and the only possible source is IndexedDB.
+ */
+async function checkKeptSiteSurvivesReload (page) {
+  const kept = await browser.createBrowserContext()
+  const victim = await kept.newPage()
+  victim.on('dialog', async dialog => { await dialog.accept() })
+
+  await victim.goto(origin + '/', { waitUntil: 'load' })
+  await victim.waitForFunction(
+    () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+
+  const hash = await victim.evaluate(async (site, paths) => {
+    const files = []
+    for (const path of paths) {
+      const res = await fetch(`/${site}/${path}`)
+      const file = new File([await res.blob()], path.split('/').pop())
+      file.fullPath = `${site}/${path}`
+      files.push(file)
+    }
+    const { publish } = await import('/js/publish.js')
+    return (await publish(files, site)).infoHash
+  }, SITE, SITE_FILES)
+
+  await victim.evaluate(h => { location.hash = h }, hash)
+  await victim.waitForFunction(() => {
+    const frame = document.getElementById('viewer')
+    return !frame.hidden && frame.src.includes('/webtorrent/')
+  }, { timeout: 30_000 })
+
+  await victim.click('#keep-toggle')
+  await victim.waitForFunction(() => !document.getElementById('kept').hidden, { timeout: 30_000 })
+
+  // The reload throws the swarm client away. Nothing else has these bytes.
+  await victim.reload({ waitUntil: 'load' })
+
+  let rendered = false
+  for (let waited = 0; waited < 45_000 && !rendered; waited += 2000) {
+    await wait(2000)
+    rendered = await victim.evaluate(() => {
+      const frame = document.getElementById('viewer')
+      return !frame.hidden && frame.src.includes('/webtorrent/')
+    })
+  }
+  check('a kept site comes back after a reload with nobody seeding it', rendered,
+    await victim.evaluate(() => document.getElementById('error-title').textContent ||
+      document.getElementById('notice').textContent))
+
+  if (rendered) {
+    const frame = victim.frames().find(f => f.url().includes('/webtorrent/'))
+    const heading = await frame?.evaluate(() => document.querySelector('h1')?.textContent)
+    check('and it renders from disk, not from a peer', heading === 'Hello from a spore', heading)
+  }
+
+  await kept.close()
 }
 
 /**

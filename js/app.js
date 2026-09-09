@@ -8,7 +8,7 @@
 
 import { collectDiagnostics, resetBrowserState } from './diagnostics.js'
 import { openDatabase, usage } from './idb.js'
-import { KEEP_WARNING, forget, isKept, keep, keptSites, restoreAll } from './keep.js'
+import { KEEP_WARNING, forget, isKept, keep, keptSites, restoreAll, restoreOne } from './keep.js'
 import { InvalidSiteRef, magnetFor, parseSiteRef } from './magnet.js'
 import { scriptsAllowed, servePolicyQueries, setScriptsAllowed } from './policy.js'
 import { filesFromDrop, filesFromInput, publish } from './publish.js'
@@ -149,12 +149,29 @@ function goHome () {
   route()
 }
 
+/** The reference currently being opened, if any. */
+let opening = null
+
+/**
+ * Routing has to tolerate being called twice for the same address.
+ *
+ * A single hash change can reach here more than once — `hashchange` and
+ * `popstate` both fire for one — and `open` is asynchronous, so two calls
+ * could each look for the torrent, each find nothing, and each add it. The
+ * second add fails with "Cannot add duplicate torrent", which surfaced as a
+ * generic error instead of the site, or instead of an honest 404.
+ */
 async function route () {
   const ref = currentRef()
   if (!ref) return showWelcome()
-  if (current?.ref === ref) return
+  if (current?.ref === ref || opening === ref) return
 
-  await open(ref)
+  opening = ref
+  try {
+    await open(ref)
+  } finally {
+    if (opening === ref) opening = null
+  }
 }
 
 async function open (ref) {
@@ -169,6 +186,12 @@ async function open (ref) {
   busy('Looking for peers…')
 
   try {
+    // Disk before swarm. A site kept on this device must come back from
+    // storage even when nobody at all is seeding it — that is the entire point
+    // of keeping it — and asking the swarm first would race the background
+    // restore and often win, leaving the stored copy untouched.
+    if (parsed.infoHash) await restoreOne(getClient(), parsed.infoHash)
+
     const torrent = await openTorrent(parsed.magnetURI, watchJoining)
     stopJoining()
 
