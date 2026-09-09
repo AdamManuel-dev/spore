@@ -22,6 +22,31 @@ Any static host over HTTPS works just as well; `tools/serve.mjs` exists only
 because service workers need a secure context and `file://` is not one
 (`localhost` is exempt).
 
+### Hosting it
+
+Any static host over HTTPS will do, because the gate is only files. GitHub
+Pages is the least-effort option:
+
+1. Push this repository to GitHub.
+2. Settings → Pages → Source: *Deploy from a branch*, branch `main`, folder
+   `/ (root)`.
+
+That is the whole deployment. There is no build step to configure, and nothing
+in the bundle assumes a particular hostname or path — verified running from a
+subpath, which is what a project page (`https://you.github.io/spore/`) gives
+you: the service worker takes its scope from wherever it was registered.
+
+Two details that matter on a static host:
+
+- `.nojekyll` is committed so Pages serves the files as they are.
+- The worker is registered with `updateViaCache: 'none'`. Pages serves assets
+  with a ten-minute `max-age`, and a cached `sw.js` outliving a fix is a bug
+  that looks exactly like the fix never happened.
+
+One caveat once you are on HTTPS: a magnet whose trackers are `ws://` rather
+than `wss://` is blocked as mixed content, and the site will never find a peer.
+Spore's own default trackers are `wss://`.
+
 ### Testing on a phone, or any other device
 
 ```sh

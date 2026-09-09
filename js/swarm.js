@@ -35,7 +35,15 @@ export async function startWorker () {
   try {
     registration = await navigator.serviceWorker.register(
       new URL('./sw.js', document.baseURI),
-      { scope: './' }
+      {
+        // Relative, so the gate works identically at the root of a domain and
+        // under a path — which is what a GitHub project page gives you.
+        scope: './',
+        // Never take sw.js from the HTTP cache. Static hosts serve assets with
+        // a long max-age (GitHub Pages uses ten minutes), and a cached worker
+        // outliving its fix is a bug that looks like the fix never happened.
+        updateViaCache: 'none'
+      }
     )
   } catch (err) {
     // Overwhelmingly this is a browser set to block site data, which disables
