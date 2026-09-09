@@ -226,8 +226,11 @@ is a later phase.
   seeding stops when the tab closes. Close every tab that has a site open and it
   goes dormant until someone with a copy seeds it again. Always-on seeding is a
   later phase.
-- **Not updatable yet.** A magnet addresses fixed bytes. Mutable pointers,
-  discovery and human-readable names are a later phase.
+- **Not updatable yet.** A magnet addresses fixed bytes, so editing a site
+  changes its address. A design for fixing that without introducing a host is
+  drafted in [spec/mutable-sites.md](spec/mutable-sites.md) — signed
+  successors delivered peer to peer, reusing BEP 44's record unchanged. It is
+  a draft, not an implementation.
 
 ## Checking it still works
 
@@ -266,6 +269,7 @@ deploy/seeder/      container that seeds one site, permanently
 vendor/             WebTorrent, committed verbatim (see vendor/README.md)
 tools/serve.mjs     dev server
 tools/e2e.mjs       browser check of both MVP promises and the security model
+spec/               protocol drafts, for anyone writing a second gate
 example-site/       the Spore whitepaper, published through Spore
 ```
 
