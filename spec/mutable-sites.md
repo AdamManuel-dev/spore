@@ -223,6 +223,63 @@ mismatch       ◈ ⚠ this is NOT the key you know as "Hacker One"
 The last state is the entire point of storing keys, and the only one that
 catches a substitution.
 
+### Marking an impostor
+
+Trust has an opposite, and a reader needs to record it. You read an article by
+a key claiming to be Lara Croft, you conclude from the article itself that it
+is not the Lara Croft you follow, and you want that conclusion to survive —
+so the next time this key turns up you are not doing the analysis again.
+
+So the book holds one kind of entry with a sign, rather than two lists:
+
+| field | |
+|---|---|
+| key | the 32 bytes; the entry's real identity |
+| your name for it | *Lara Croft*, or *fake Lara Croft* |
+| status | trusted, or flagged |
+| note | optional, in the reader's words — "pretends to be Lara Croft" |
+| when, and where | the date, and the infohash it was read on |
+
+Recording the infohash matters: months later the note means little without the
+article that produced it, and the article is still addressable.
+
+A flagged key, met again, produces a full stop rather than a footnote — the
+same treatment a missing site gets, not a line of small text. But the gate
+**should not refuse to render it.** Deciding what a reader may look at is the
+posture this project exists to oppose, and the reader has already demonstrated
+they can judge. Say it loudly, name the date and the note, offer to continue.
+
+### What flagging is actually worth
+
+Less than it feels, and it is worth being straight about that.
+
+An impostor who is flagged simply generates another key. Flagging therefore
+does not prevent impersonation; it prevents *repeat* impersonation by the same
+key, which is a much smaller claim.
+
+The actual defence is elsewhere and is already specified: an untrusted key is
+displayed as untrusted no matter what name it claims, so the impostor never
+receives the presentation that would make the lie work. The flag is a memory
+aid on top of that — it saves the reader from re-reaching a conclusion they
+have already reached. Useful, and not a security boundary.
+
+### Flags stay local
+
+The obvious next feature is sharing them: my flags, published, so my friends
+inherit them. This specification says no, and the reason is not squeamishness.
+
+A propagating "this author is a liar" record is a takedown mechanism. It is
+precisely as effective as the ones the project exists to resist, aimed inward
+and easier to operate: no host to petition, no jurisdiction, just a signed
+claim that spreads through the same channels the content does. Someone with
+reach flags an author and that author is functionally erased for everyone
+downstream. There is no revocation here, no appeal, and no way for the accused
+to answer — and a false accusation is as portable as a true one.
+
+Trust may be shared by introduction, because an introduction is an offer the
+recipient chooses to act on and can verify against the key. Distrust broadcast
+at strangers is a different instrument, and this design does not build it.
+
 ### The phone book
 
 The model is caller ID. A call announcing "this is Abraham Lincoln" tells you
@@ -413,6 +470,13 @@ visual space, and grinding keypairs to land near a given picture is cheap.
 Since the avatar is explicitly not the verification mechanism this may be
 acceptable, but the size of the space should be chosen deliberately rather than
 by whatever looks nice.
+
+**Pressure to share flags.** The prohibition above will be asked about, because
+inheriting a friend's judgement is genuinely convenient and the mechanism is
+trivial to build. If it is ever revisited, the questions to answer first are
+who can be held to a false accusation, how an author answers one, and what
+stops a flag propagating further than the reader who accepted it — none of
+which have good answers today, which is why the answer is no.
 
 **Exporting trust.** A reader's petnames and trusted keys are the only thing
 here that cannot be regenerated. Losing a browser profile loses them. Whether
