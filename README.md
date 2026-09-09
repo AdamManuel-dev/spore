@@ -59,6 +59,23 @@ shareable link, and your tab becomes the site's first seed.
 
 Every reader who opens the link seeds it too, for as long as their tab is open.
 
+## Keeping a site
+
+Spore writes nothing to disk by default — no cache, no history. **Keep offline**
+is you deciding otherwise for one site: its contents are stored in IndexedDB, it
+opens instantly with no peer online, and it is seeded from the moment Spore
+starts rather than only once someone else turns up.
+
+It asks before it does that, because it is not free: the site's contents sit on
+your device where anyone using the browser profile can read them, and you
+announce that you hold it every time Spore opens rather than only while reading.
+**Forget** deletes the record and every stored byte. Full reasoning in
+[SECURITY.md](SECURITY.md#keeping-a-site-on-this-device).
+
+This is not the same as always-on availability: a kept site is still only
+reachable while one of your tabs is open. A seeder that runs without a browser
+is a later phase.
+
 ## What this is not
 
 - **Not anonymity.** Peers in a swarm see each other's IP addresses. Spore

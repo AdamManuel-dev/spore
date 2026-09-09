@@ -40,6 +40,8 @@ try {
 /* -------------------------------------------------------------------------- */
 
 const results = []
+/** Every confirm() the gate raised, newest run of checks clearing it as it goes. */
+const prompts = []
 const check = (name, pass, detail = '') => {
   results.push({ name, pass })
   console.log(`${pass ? '  ok  ' : ' FAIL '}${name}${detail ? ` — ${detail}` : ''}`)
@@ -78,6 +80,10 @@ async function run () {
   const console_ = []
   page.on('console', m => console_.push(m.text()))
   page.on('pageerror', e => console_.push('pageerror: ' + e.message))
+
+  // One handler for the whole run: the gate asks before granting anything, and
+  // each check clears the flag before the click it cares about.
+  page.on('dialog', async dialog => { prompts.push(dialog.message()); await dialog.accept() })
 
   await page.goto(origin + '/', { waitUntil: 'load' })
   await page.waitForFunction(() => !!navigator.serviceWorker.controller, { timeout: 20_000 })
@@ -171,11 +177,11 @@ async function run () {
   await wait(3000)
 
   // --- opting in to scripts -------------------------------------------------
-  let asked = false
-  page.on('dialog', async dialog => { asked = true; await dialog.accept() })
+  prompts.length = 0
   await page.click('#scripts-toggle')
   await wait(500)
-  check('turning scripts on asks first', asked)
+  check('turning scripts on asks first',
+    prompts.some(text => text.includes("Run this site's scripts?")), prompts[0]?.split('\n')[0])
 
   // Opting in reloads the frame, so poll rather than guess how long that takes.
   const after = await settle(page, () => document.getElementById('probe')?.textContent,
@@ -215,14 +221,75 @@ async function run () {
   check('the permission is stored against the infohash, not a name',
     JSON.parse(stored ?? '[]').includes(infoHash), stored)
 
-  asked = false
+  prompts.length = 0
   await page.evaluate(() => { location.hash = '' })
   await wait(1000)
   await page.evaluate(hash => { location.hash = hash }, infoHash)
   const reopened = await settle(page, () => document.getElementById('probe')?.textContent,
     text => text === 'Scripts are on for this site.')
   check('re-opening the site keeps scripts on without asking again',
-    reopened === 'Scripts are on for this site.' && !asked, reopened)
+    reopened === 'Scripts are on for this site.' && prompts.length === 0, reopened)
+
+  await checkKeepingOffline(page, infoHash)
+}
+
+/**
+ * Keeping a site is the only thing that writes to disk, so it gets checked the
+ * same way: nothing stored until asked, and everything gone when forgotten.
+ */
+async function checkKeepingOffline (page, infoHash) {
+  const stored = () => page.evaluate(async () => {
+    const { listSites } = await import('/js/idb.js')
+    return (await listSites()).map(s => s.infoHash)
+  })
+
+  check('nothing is on disk before the reader asks', (await stored()).length === 0)
+
+  prompts.length = 0
+  await page.click('#keep-toggle')
+  await page.waitForFunction(() => !document.getElementById('kept').hidden, { timeout: 30_000 })
+  check('keeping a site on this device asks first',
+    prompts.some(text => text.includes('Keep this site on this device?')), prompts[0]?.split('\n')[0])
+  check('the site is stored under its infohash', (await stored()).includes(infoHash))
+  check('the kept site is listed with a way to forget it',
+    await page.$eval('#kept-list', list => list.children.length === 1 &&
+      !!list.querySelector('button')))
+
+  // The payoff: a kept site comes back complete, with no peer to ask.
+  const restored = await page.evaluate(async hash => {
+    const { restoreAll } = await import('/js/keep.js')
+    const { getClient } = await import('/js/swarm.js')
+    const client = getClient()
+    const torrent = await client.get(hash)
+    await torrent.destroy()                    // as if the tab had been closed
+    const result = await restoreAll(client)
+    const back = await client.get(hash)
+    return { ...result, done: !!back?.done, progress: back?.progress }
+  }, infoHash)
+  check('a kept site reloads from disk, complete, with no peers',
+    restored.restored === 1 && restored.done === true,
+    `restored ${restored.restored}, progress ${restored.progress}`)
+
+  // Kept sites are managed from the welcome screen, so go back to it first.
+  await page.evaluate(() => { location.hash = '' })
+  await page.waitForFunction(() => !document.getElementById('welcome').hidden, { timeout: 10_000 })
+  check('the welcome screen reports what is being seeded from disk',
+    (await page.$eval('#peers', el => el.textContent)).includes('1 kept site'),
+    await page.$eval('#peers', el => el.textContent))
+
+  await page.click('#kept-list button')
+  await page.waitForFunction(() => document.getElementById('kept').hidden, { timeout: 10_000 })
+  check('forgetting a site removes it from disk', (await stored()).length === 0)
+
+  const chunks = await page.evaluate(() => new Promise(resolve => {
+    const open = indexedDB.open('spore')
+    open.onsuccess = () => {
+      const count = open.result.transaction('chunks').objectStore('chunks').count()
+      count.onsuccess = () => resolve(count.result)
+    }
+    open.onerror = () => resolve(-1)
+  }))
+  check('forgetting deletes the stored bytes, not just the record', chunks === 0, `${chunks} chunks left`)
 }
 
 /**

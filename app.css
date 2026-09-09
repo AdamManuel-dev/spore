@@ -80,17 +80,6 @@ button, .button {
 
 button:hover, .button:hover { border-color: var(--accent); }
 
-.scripts {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  color: var(--muted);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.scripts input:disabled + span { opacity: .4; }
-
 /* --- stage -------------------------------------------------------------- */
 
 .stage {
@@ -205,4 +194,61 @@ code { font-family: var(--mono); }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* --- toggles ------------------------------------------------------------ */
+
+.toggle {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.toggle input:disabled + span { opacity: .4; }
+
+/* --- kept sites --------------------------------------------------------- */
+
+.kept {
+  margin-top: 28px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.kept h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.kept p { margin: 0 0 12px; }
+
+.kept-list {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.kept-list li {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+
+.kept-list a {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent);
+}
+
+.kept-list button {
+  padding: 4px 10px;
+  font-size: 12px;
 }

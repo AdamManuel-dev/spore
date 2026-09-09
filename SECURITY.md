@@ -150,10 +150,44 @@ keeps offering them to the swarm — that is how a site survives its publisher
 closing their tab, and it is objective, not a side effect. But it means you go
 on announcing that you hold that infohash for as long as the tab is open, past
 the point where you have navigated away to something else. Every site opened in
-a tab is seeded until that tab closes; nothing is kept across sessions, because
-nothing is stored on disk.
+a tab is seeded until that tab closes.
 
 If that announcement is a problem for a particular site, close the tab.
+
+## Keeping a site on this device
+
+By default Spore writes **nothing** to disk. A site you read lives in memory and
+is gone when the tab closes. There is no cache, no history, no record of what
+you opened.
+
+"Keep offline" is the reader deliberately changing that, for one site, after
+being told what it means. It is off by default, it is per infohash, and it is
+never inferred from behaviour — visiting a site often does not start keeping it.
+
+What it buys: the site opens instantly, works with no peer online, and is seeded
+from the moment Spore starts rather than only once someone else shows up. For a
+site you care about surviving, that is the difference between depending on a
+stranger's open tab and depending on your own.
+
+What it costs, and both are real:
+
+- **The site's contents are written to this device**, in IndexedDB under the
+  gate's origin. Anyone who can use this browser profile can read what you have
+  kept. This is the only durable trace Spore leaves.
+- **You announce it, repeatedly.** A kept site is seeded on every launch, not
+  only while you are reading. Over time that is a much stronger signal to
+  trackers and peers that this device holds this content than a single visit.
+- **You are hosting it.** Whatever is in that torrent, your device serves to
+  strangers who ask.
+
+"Forget" deletes the record and every stored byte, and the code deletes chunks
+by key range rather than relying on the record alone, so nothing is orphaned.
+The gate asks the browser for persistent storage when you keep something; the
+browser may refuse and may evict later, so a kept site is never promised to be
+there forever.
+
+The metadata (`.torrent`) is stored alongside the pieces, which is what lets a
+kept site come back without asking a peer for it first.
 
 ## Reporting
 

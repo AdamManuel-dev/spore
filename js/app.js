@@ -6,11 +6,13 @@
  * to whichever host is serving this bundle.
  */
 
+import { usage } from './idb.js'
+import { KEEP_WARNING, forget, isKept, keep, keptSites, restoreAll } from './keep.js'
 import { InvalidSiteRef, magnetFor, parseSiteRef } from './magnet.js'
 import { scriptsAllowed, servePolicyQueries, setScriptsAllowed } from './policy.js'
 import { filesFromDrop, filesFromInput, publish } from './publish.js'
 import { entryURL, findEntry } from './site.js'
-import { openTorrent, startClient, startWorker } from './swarm.js'
+import { getClient, openTorrent, startClient, startWorker } from './swarm.js'
 import { Viewer } from './viewer.js'
 
 const el = id => document.getElementById(id)
@@ -26,6 +28,11 @@ const ui = {
   progress: el('progress'),
   scripts: el('scripts-toggle'),
   scriptsLabel: el('scripts-label'),
+  keep: el('keep-toggle'),
+  keepLabel: el('keep-label'),
+  kept: el('kept'),
+  keptList: el('kept-list'),
+  keptUsage: el('kept-usage'),
   share: el('share'),
   shareLink: el('share-link'),
   copy: el('copy'),
@@ -36,6 +43,8 @@ const ui = {
 /** The site on screen, or null. @type {{torrent: object, ref: string}|null} */
 let current = null
 let statsTimer = null
+/** Infohashes kept on this device, refreshed whenever the list changes. */
+let keptHashes = new Set()
 
 boot()
 
@@ -51,8 +60,13 @@ async function boot () {
   window.addEventListener('hashchange', () => route())
   ui.addressForm.addEventListener('submit', onAddressSubmit)
   ui.scripts.addEventListener('change', onScriptsToggle)
+  ui.keep.addEventListener('change', onKeepToggle)
   ui.copy.addEventListener('click', onCopy)
   wireDropTarget()
+
+  // Kept sites come back before routing, so landing straight on one opens it
+  // from disk instead of racing to add a second copy of the same torrent.
+  await restoreKept()
 
   route()
 }
@@ -97,18 +111,21 @@ async function open (ref) {
     if (!entry) throw new Error(`“${torrent.name}” has no index.html, so there is no page to show.`)
 
     current = { torrent, ref }
-    render(torrent, entry)
+    await render(torrent, entry)
   } catch (err) {
     fail(err)
   }
 }
 
-function render (torrent, entry) {
+async function render (torrent, entry) {
   const allowed = scriptsAllowed(torrent.infoHash)
 
   ui.scripts.checked = allowed
   ui.scripts.disabled = false
   ui.scriptsLabel.hidden = false
+  ui.keep.checked = await isKept(torrent.infoHash)
+  ui.keep.disabled = false
+  ui.keepLabel.hidden = false
   ui.viewer.show(entryURL(torrent.infoHash, entry), { scripts: allowed })
   ui.welcome.hidden = true
   ui.notice.hidden = true
@@ -147,6 +164,104 @@ async function onScriptsToggle () {
   const entry = findEntry(torrent)
   await ui.viewer.show(entryURL(torrent.infoHash, entry), { scripts: ui.scripts.checked })
 }
+
+/* -------------------------------------------------------------------------- */
+/* Keeping sites on this device                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The other decision that gives something up, so it asks too. Turning it off
+ * deletes the data and never asks — undoing a choice should not be a negotiation.
+ */
+async function onKeepToggle () {
+  if (!current) return
+  const { torrent } = current
+
+  if (!ui.keep.checked) {
+    await forget(torrent.infoHash)
+    await refreshKeptList()
+    return
+  }
+
+  if (!confirm(KEEP_WARNING)) {
+    ui.keep.checked = false
+    return
+  }
+
+  ui.keep.disabled = true
+  try {
+    await keep(torrent, (done, total) => {
+      ui.progress.textContent = `keeping ${Math.round((done / total) * 100)}%`
+    })
+    await refreshKeptList()
+  } catch (err) {
+    ui.keep.checked = false
+    fail(err)
+  } finally {
+    ui.keep.disabled = false
+  }
+}
+
+async function restoreKept () {
+  try {
+    const { failed } = await restoreAll(getClient())
+    if (failed.length > 0) {
+      console.warn(`Spore: ${failed.length} kept site(s) could not be restored:`, failed)
+    }
+  } catch (err) {
+    // Storage can be unavailable outright (private mode, blocked cookies).
+    // That costs the reader the kept sites, not the gate.
+    console.warn('Spore: offline storage is unavailable.', err)
+  }
+  await refreshKeptList()
+}
+
+async function refreshKeptList () {
+  let sites
+  try {
+    sites = await keptSites()
+  } catch {
+    return
+  }
+
+  keptHashes = new Set(sites.map(site => site.infoHash))
+  ui.kept.hidden = sites.length === 0
+  ui.keptList.replaceChildren(...sites.map(renderKeptSite))
+  if (!ui.welcome.hidden) showSeedingCount()
+
+  const { usage: used, quota } = await usage()
+  ui.keptUsage.textContent = quota
+    ? `${formatBytes(used)} used of roughly ${formatBytes(quota)} this browser allows.`
+    : ''
+}
+
+function renderKeptSite (site) {
+  const item = document.createElement('li')
+
+  const link = document.createElement('a')
+  link.href = `#${site.infoHash}`
+  link.textContent = site.name || site.infoHash
+  item.append(link)
+
+  const size = document.createElement('span')
+  size.className = 'muted'
+  size.textContent = formatBytes(site.length)
+  item.append(size)
+
+  const drop = document.createElement('button')
+  drop.type = 'button'
+  drop.textContent = 'Forget'
+  drop.addEventListener('click', async () => {
+    await forget(site.infoHash)
+    if (current?.torrent.infoHash === site.infoHash) ui.keep.checked = false
+    await refreshKeptList()
+  })
+  item.append(drop)
+
+  return item
+}
+
+/* -------------------------------------------------------------------------- */
 
 function onAddressSubmit (event) {
   event.preventDefault()
@@ -228,9 +343,22 @@ function showWelcome () {
   ui.address.value = ''
   ui.scripts.disabled = true
   ui.scriptsLabel.hidden = true
+  ui.keep.disabled = true
+  ui.keepLabel.hidden = true
   ui.status.textContent = 'Nothing open'
-  ui.peers.textContent = ''
+  showSeedingCount()
   ui.progress.textContent = ''
+}
+
+/**
+ * Kept sites are seeded from the moment the gate opens, so say so when idle.
+ * Counted off the client rather than off the stored list: a site whose pieces
+ * failed to verify is kept but is not being seeded, and claiming otherwise
+ * would be a lie about availability.
+ */
+function showSeedingCount () {
+  const seeding = getClient().torrents.filter(t => keptHashes.has(t.infoHash) && t.done).length
+  ui.peers.textContent = seeding > 0 ? `seeding ${seeding} kept site${seeding === 1 ? '' : 's'}` : ''
 }
 
 function busy (message) {

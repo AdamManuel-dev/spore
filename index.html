@@ -37,7 +37,14 @@
     <button type="submit">Open</button>
   </form>
 
-  <label id="scripts-label" class="scripts" hidden>
+  <label id="keep-label" class="toggle" hidden
+         title="Store this site on this device and seed it whenever Spore is open">
+    <input id="keep-toggle" type="checkbox" disabled>
+    <span>Keep offline</span>
+  </label>
+
+  <label id="scripts-label" class="toggle" hidden
+         title="Let this site run its scripts (it can then tamper with Spore itself)">
     <input id="scripts-toggle" type="checkbox" disabled>
     <span>Scripts</span>
   </label>
@@ -80,6 +87,15 @@
          tab that has it open. Close them all and it goes dormant until someone
          with a copy seeds it again.</p>
     </div>
+
+    <section id="kept" class="kept" hidden>
+      <h2>Kept on this device</h2>
+      <p class="muted">These are seeded from the moment Spore opens, so they do
+         not need anyone else to be online. They are the only thing Spore has
+         written to disk. <strong>Forget</strong> deletes every byte.</p>
+      <ul id="kept-list" class="kept-list"></ul>
+      <p id="kept-usage" class="muted small"></p>
+    </section>
 
     <p class="muted small">Spore resists takedowns, not observation: peers in a
        swarm can see each other's IP addresses. It is not an anonymity tool.</p>
