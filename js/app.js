@@ -217,7 +217,8 @@ function watchJoining (torrent) {
     const trouble = trackerProblems.size > 0
       ? ` · ${trackerProblems.size} tracker${trackerProblems.size === 1 ? '' : 's'} unreachable`
       : ''
-    busy(`Looking for peers… ${found} after ${seconds}s${trouble}`)
+    busy(`Looking for peers… ${found} after ${seconds}s${trouble}` +
+      (seconds >= 8 && torrent.numPeers === 0 ? ' · nobody has answered yet' : ''))
     ui.peers.textContent = found
   }
   tick()

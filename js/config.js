@@ -21,8 +21,15 @@ export const DEFAULT_TRACKERS = [
 /** Path prefix the service worker answers on, relative to the gate's scope. */
 export const TORRENT_PATH = 'webtorrent'
 
-/** Give up waiting for a torrent's metadata after this long. */
-export const METADATA_TIMEOUT_MS = 60_000
+/**
+ * Give up waiting for a torrent's metadata after this long.
+ *
+ * A live swarm answers in a few seconds; the old minute meant a reader staring
+ * at a spinner long past the point of drawing their own conclusion, and most
+ * never saw the page that was waiting to explain it. Thirty seconds is still
+ * generous, and giving up is not destructive — "Try again" rejoins.
+ */
+export const METADATA_TIMEOUT_MS = 30_000
 
 /**
  * The version of `sw.js` this bundle expects to be talking to. Bump both

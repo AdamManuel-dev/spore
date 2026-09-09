@@ -440,6 +440,21 @@ async function checkKeepingOffline (page, infoHash) {
 async function checkMissingSiteAndHome (page) {
   const missing = 'ffffffffffffffffffffffffffffffffffffffff'
 
+  // A magnet with a typo in it must be refused at once, not waited on. This is
+  // the shape a reader actually hits: one wrong character in a pasted link,
+  // which WebTorrent accepts without complaint and then waits out in full.
+  await page.evaluate(() => {
+    location.hash = 'magnet:?xt=urn:btih:ba62786619c7e7b0ccfdqdd1c660cd24c53e6d8b&dn=x'
+  })
+  await wait(2500)
+  const typo = await page.evaluate(() => ({
+    hidden: document.getElementById('error').hidden,
+    code: document.getElementById('error-code').textContent,
+    detail: document.getElementById('error-detail').textContent.slice(0, 60)
+  }))
+  check('a magnet with a typo is refused immediately, not waited on',
+    typo.hidden === false && typo.code === '???', JSON.stringify(typo))
+
   // Deliberately the slow path. An earlier version of this check faked the
   // failure by emitting an error on the torrent, which took the generic branch
   // and never exercised the 404 at all — it passed while proving nothing. This

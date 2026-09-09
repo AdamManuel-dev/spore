@@ -48,10 +48,31 @@ export function magnetFor (infoHash, name) {
   return `magnet:?xt=urn:btih:${infoHash}&${params.join('&')}`
 }
 
+/**
+ * The infohash a magnet addresses, validated.
+ *
+ * Validated here rather than left to WebTorrent, which accepts a malformed
+ * infohash without complaint and then waits for peers that can never exist —
+ * so a typo in a pasted link looked exactly like a site nobody is seeding, for
+ * as long as the reader was willing to watch a spinner.
+ *
+ * @returns {string|null} the v1 infohash in hex, or null for a base32 one,
+ *   which WebTorrent decodes itself and which we cannot name until metadata.
+ * @throws {InvalidSiteRef} if there is no readable infohash in there
+ */
 function infoHashFromMagnet (magnetURI) {
-  const match = /xt=urn:btih:([0-9a-z]+)/i.exec(magnetURI)
-  if (!match) return null
-  return HEX_INFOHASH.test(match[1]) ? match[1].toLowerCase() : null
+  const match = /xt=urn:btih:([^&]+)/i.exec(magnetURI)
+  if (!match) {
+    throw new InvalidSiteRef('That magnet link has no infohash in it (no “xt=urn:btih:”).')
+  }
+
+  const value = decodeURIComponent(match[1])
+  if (HEX_INFOHASH.test(value)) return value.toLowerCase()
+  if (BASE32_INFOHASH.test(value)) return null
+
+  throw new InvalidSiteRef(
+    `“${value}” is not a valid infohash: it should be 40 characters of 0-9 and ` +
+    'a-f, or 32 of base32. Check the link for a typo or a missing character.')
 }
 
 /**
