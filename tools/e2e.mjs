@@ -176,10 +176,10 @@ async function run () {
   await page.click('#scripts-toggle')
   await wait(500)
   check('turning scripts on asks first', asked)
-  await wait(2500)
 
-  const after = await (await siteFrame(page)).evaluate(
-    () => document.getElementById('probe')?.textContent)
+  // Opting in reloads the frame, so poll rather than guess how long that takes.
+  const after = await settle(page, () => document.getElementById('probe')?.textContent,
+    text => text === 'Scripts are on for this site.')
   check('the script runs once the reader opts in', after === 'Scripts are on for this site.', after)
 
   const sandboxAfter = await page.$eval('#viewer', f => f.getAttribute('sandbox'))
@@ -192,6 +192,54 @@ async function run () {
   check('CSP: egress stays inside the torrent even with scripts on',
     cspAfter.includes(`connect-src ${origin}/webtorrent/${infoHash}/`),
     cspAfter.match(/connect-src [^;]*/)?.[0])
+
+  // --- the address bar ------------------------------------------------------
+  // Navigating by pasting a magnet must not reload the gate: the fragment is
+  // the whole of the navigation, and the swarm client has to survive it.
+  const gateLoadedAt = await page.evaluate(() => {
+    window.__spore_marker = Date.now()
+    return window.__spore_marker
+  })
+  await page.$eval('#address', (input, value) => { input.value = value }, infoHash)
+  await page.click('#address-form button')
+  await wait(2000)
+  check('the address bar navigates without reloading the gate',
+    (await page.evaluate(() => window.__spore_marker)) === gateLoadedAt)
+
+  // --- the permission is stored, and bound to the infohash ------------------
+  // Not tested across a page reload: reloading kills this tab's client, and it
+  // is the only seed here, so there would be no site left to re-open. What can
+  // be checked is that the decision is persisted under the right key and that
+  // re-opening the site honours it without asking again.
+  const stored = await page.evaluate(() => localStorage.getItem('spore.scripts-allowed'))
+  check('the permission is stored against the infohash, not a name',
+    JSON.parse(stored ?? '[]').includes(infoHash), stored)
+
+  asked = false
+  await page.evaluate(() => { location.hash = '' })
+  await wait(1000)
+  await page.evaluate(hash => { location.hash = hash }, infoHash)
+  const reopened = await settle(page, () => document.getElementById('probe')?.textContent,
+    text => text === 'Scripts are on for this site.')
+  check('re-opening the site keeps scripts on without asking again',
+    reopened === 'Scripts are on for this site.' && !asked, reopened)
+}
+
+/**
+ * Read something out of the site frame until it settles on an expected value.
+ * The frame reloads underneath us whenever the policy changes, so a fixed sleep
+ * either flakes or wastes time.
+ */
+async function settle (page, read, done, attempts = 40) {
+  let last
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      last = await (await siteFrame(page)).evaluate(read)
+      if (done(last)) return last
+    } catch { /* the frame is mid-navigation; try again */ }
+    await wait(250)
+  }
+  return last
 }
 
 /** The site's frame, once its document has actually settled. */

@@ -142,11 +142,10 @@ async function onScriptsToggle () {
     return
   }
 
-  await setScriptsAllowed(torrent.infoHash, ui.scripts.checked)
+  setScriptsAllowed(torrent.infoHash, ui.scripts.checked)
 
   const entry = findEntry(torrent)
-  ui.viewer.clear()
-  ui.viewer.show(entryURL(torrent.infoHash, entry), { scripts: ui.scripts.checked })
+  await ui.viewer.show(entryURL(torrent.infoHash, entry), { scripts: ui.scripts.checked })
 }
 
 function onAddressSubmit (event) {

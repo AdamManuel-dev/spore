@@ -52,27 +52,16 @@ function route (event) {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Scripts are opt-in per site and the toggle lives in the page (localStorage),
- * so the worker has to ask. Answers are cached, and the page pushes an update
- * whenever the user flips the switch. A worker restart just means one extra
- * round-trip; if nobody answers we fail closed.
+ * Scripts are opt-in per site and the toggle lives in the page, so the worker
+ * has to ask — on every request, deliberately. Caching the answer here would
+ * mean inventing an invalidation protocol and getting it wrong in exactly the
+ * situation that matters: the reader flips the switch, the page reloads the
+ * frame, and the worker serves it under the policy from a moment ago. The page
+ * answers out of `localStorage`, so a round-trip costs a pair of postMessages.
+ *
+ * If nobody answers, we fail closed.
  */
-const policyCache = new Map()
-
-self.addEventListener('message', event => {
-  const msg = event.data
-  if (msg?.type !== 'spore/policy-set') return
-  policyCache.set(msg.infoHash, { scripts: !!msg.scripts })
-})
-
 async function policyFor (infoHash) {
-  if (policyCache.has(infoHash)) return policyCache.get(infoHash)
-  const policy = await askClientsForPolicy(infoHash)
-  policyCache.set(infoHash, policy)
-  return policy
-}
-
-async function askClientsForPolicy (infoHash) {
   const denied = { scripts: false }
   const windows = await self.clients.matchAll({ type: 'window' })
   if (windows.length === 0) return denied

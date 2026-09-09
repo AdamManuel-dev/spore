@@ -38,27 +38,27 @@ export function scriptsAllowed (infoHash) {
 }
 
 /**
- * Persist the decision and push it to the worker, so the next request for that
- * site is served under the new policy without waiting to be asked.
+ * Persist the decision. Nothing has to be pushed to the worker: it asks on
+ * every request, so the next fetch of the site already sees this.
  */
-export async function setScriptsAllowed (infoHash, allowed) {
+export function setScriptsAllowed (infoHash, allowed) {
   const set = load()
   if (allowed) set.add(infoHash)
   else set.delete(infoHash)
   save(set)
-
-  const registration = await navigator.serviceWorker?.ready
-  registration?.active?.postMessage({ type: 'spore/policy-set', infoHash, scripts: allowed })
 }
 
-/**
- * Answer the worker's policy questions. A worker can be shut down and restarted
- * at any time, losing its cache; when that happens it asks again rather than
- * silently reverting an enabled site to no-scripts.
- */
+/** Answer the worker's policy questions. */
 export function servePolicyQueries () {
-  navigator.serviceWorker?.addEventListener('message', event => {
+  if (!navigator.serviceWorker) return
+
+  navigator.serviceWorker.addEventListener('message', event => {
     if (event.data?.type !== 'spore/policy-query') return
     event.ports[0]?.postMessage({ scripts: scriptsAllowed(event.data.infoHash) })
   })
+
+  // A container that only ever gets `addEventListener` keeps its message queue
+  // dormant. Without this the worker's questions are delivered to nobody, it
+  // times out, and a site the reader enabled quietly loses its scripts.
+  navigator.serviceWorker.startMessages()
 }

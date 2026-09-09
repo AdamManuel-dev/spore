@@ -51,21 +51,37 @@ export class Viewer {
   /**
    * @param {string} url  worker-served URL of the site's entry page
    * @param {{ scripts: boolean }} policy
+   * @returns {Promise<void>} resolves once the load has been started
    */
-  show (url, policy) {
+  async show (url, policy) {
     const sandbox = [...BASE_SANDBOX]
     if (policy.scripts) sandbox.push('allow-scripts')
 
-    // Set sandbox before src: the attribute is read when the load starts.
+    // Drop the old document first, and wait for that to actually happen. The
+    // sandbox flags are read when a load *starts*, so assigning `sandbox` and
+    // `src` back-to-back against a frame that is still busy can leave the site
+    // rendered under the previous policy — which is how "enable scripts" used
+    // to silently do nothing until the reader navigated away and back.
+    await this.clear()
+
     this.frame.setAttribute('sandbox', sandbox.join(' '))
     this.frame.src = url
     this.frame.hidden = false
   }
 
+  /** @returns {Promise<void>} resolves when the frame holds nothing */
   clear () {
     this.frame.hidden = true
-    // about:blank rather than dropping src, so the previous document is
-    // discarded now instead of lingering behind a hidden frame.
-    this.frame.src = 'about:blank'
+    if (this.frame.src === 'about:blank' || !this.frame.src) return Promise.resolve()
+
+    return new Promise(resolve => {
+      // Never hang on this: a frame that will not unload should not wedge the
+      // gate, and the navigation below replaces it either way.
+      let timer
+      const finish = () => { clearTimeout(timer); resolve() }
+      timer = setTimeout(finish, 1000)
+      this.frame.addEventListener('load', finish, { once: true })
+      this.frame.src = 'about:blank'
+    })
   }
 }

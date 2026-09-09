@@ -145,6 +145,16 @@ Trackers are the exception: joining a swarm tells the tracker, and every peer,
 which infohash you want. This is inherent to BitTorrent, not something the gate
 can paper over.
 
+**Reading a site also seeds it.** Once a site's pieces are verified, the gate
+keeps offering them to the swarm — that is how a site survives its publisher
+closing their tab, and it is objective, not a side effect. But it means you go
+on announcing that you hold that infohash for as long as the tab is open, past
+the point where you have navigated away to something else. Every site opened in
+a tab is seeded until that tab closes; nothing is kept across sessions, because
+nothing is stored on disk.
+
+If that announcement is a problem for a particular site, close the tab.
+
 ## Reporting
 
 This is a young project with a deliberately small threat model. If you find
