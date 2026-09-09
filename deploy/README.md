@@ -15,6 +15,31 @@ no web page. A working setup for one person will often be the gate on a host
 with TLS and a seeder wherever the content lives — but you can run either
 alone, and most people only ever need the gate.
 
+## Architectures
+
+Both images build and run on **x86-64** and on **64-bit ARM** — a Raspberry Pi
+5 running 64-bit Raspberry Pi OS or Ubuntu is fine, and so is an Apple Silicon
+machine. Docker picks the right architecture for the host on its own; there is
+nothing to configure.
+
+What that rests on, since one of these is a native module:
+
+- `nginx:1.27-alpine` and `node:22-slim` both publish `linux/arm64/v8`.
+- `node-datachannel` ships a prebuilt binary per platform, and the arm64 one is
+  a genuine `ELF 64-bit … ARM aarch64` object for glibc. npm downloads it, so
+  no compiler is needed on the Pi.
+
+**32-bit ARM is the exception.** There is no prebuilt binary for `armv7`/
+`armhf`, so on 32-bit Raspberry Pi OS the seeder would have to compile
+node-datachannel from source and the image, which carries no toolchain, will
+fail to build. Use the 64-bit OS — on a Pi 5 there is no reason not to. The
+gate has no native code and runs on 32-bit ARM regardless.
+
+Verified here by inspecting the published images and binaries, not by running
+them on ARM hardware: this machine is x86-64 and has no emulation registered.
+If it matters to you, `docker compose build` on the Pi itself is the test, and
+it either downloads the arm64 binary or fails loudly.
+
 ## gate/
 
 ```sh

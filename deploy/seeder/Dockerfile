@@ -9,8 +9,14 @@
 # is a WebRTC implementation: a browser peer speaks WebRTC and nothing else, so
 # an ordinary BitTorrent client cannot serve a Spore site at all.
 #
-# Debian rather than Alpine on purpose: node-datachannel ships prebuilt
-# binaries for glibc, and on musl it would have to compile from source.
+# Debian for the boring reason that it is the most widely tested target, not
+# because Alpine would fail: node-datachannel publishes prebuilt binaries for
+# linux x64 and arm64, glibc and musl alike, so npm downloads one rather than
+# compiling. Nothing here needs a toolchain on any of those.
+#
+# The architecture that does NOT have a prebuilt binary is 32-bit ARM. On a
+# 64-bit OS a Raspberry Pi is fine; on 32-bit Raspberry Pi OS this image cannot
+# build without adding cmake and a compiler.
 FROM node:22-slim
 
 WORKDIR /app

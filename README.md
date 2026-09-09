@@ -179,6 +179,10 @@ node tools/seed.mjs my-site.torrent --path /srv/sites
 `--path` is the directory containing the site's folder. WebTorrent verifies
 what is already on disk and seeds it under the original infohash.
 
+Both images run on x86-64 and 64-bit ARM, so a Raspberry Pi 5 is a perfectly
+good seeder — see [deploy/](deploy/#architectures), including the one
+architecture that will not work.
+
 Keep it running however you keep anything running — `systemd`, `pm2`, a
 `tmux` window, `docker compose up -d`. Nothing about Spore cares which.
 
