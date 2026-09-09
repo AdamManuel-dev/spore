@@ -22,7 +22,7 @@ html, body {
 
 body {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto 1fr auto;
   background: var(--bg);
   color: var(--ink);
   font: 14px/1.5 var(--font);
@@ -148,11 +148,9 @@ button:hover, .button:hover { border-color: var(--accent); }
 .pick { display: inline-block; margin-top: 8px; }
 
 .share {
-  margin-top: 24px;
-  padding: 20px;
-  border: 1px solid var(--accent);
-  border-radius: 14px;
+  padding: 14px 18px;
   background: var(--panel);
+  border-bottom: 1px solid var(--accent);
 }
 
 .share p { margin: 0 0 12px; }
@@ -251,4 +249,31 @@ code { font-family: var(--mono); }
 .kept-list button {
   padding: 4px 10px;
   font-size: 12px;
+}
+
+/* --- drop target -------------------------------------------------------- */
+
+/* The whole window accepts a dropped folder, so the whole window has to look
+   like it does — otherwise a reader aims at the dashed box, misses, and the
+   browser opens the file instead. */
+
+.drop-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  align-items: center;
+  justify-content: center;
+  background: rgba(18, 16, 15, .88);
+  border: 3px dashed var(--accent);
+  color: var(--accent);
+  font-size: 20px;
+  pointer-events: none; /* never swallow the drop it is advertising */
+}
+
+body.is-dragging .drop-overlay { display: flex; }
+
+#share-dismiss {
+  padding: 8px 12px;
+  color: var(--muted);
 }

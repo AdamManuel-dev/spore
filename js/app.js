@@ -36,6 +36,7 @@ const ui = {
   share: el('share'),
   shareLink: el('share-link'),
   copy: el('copy'),
+  shareDismiss: el('share-dismiss'),
   dropzone: el('dropzone'),
   folder: el('folder-input')
 }
@@ -43,6 +44,9 @@ const ui = {
 /** The site on screen, or null. @type {{torrent: object, ref: string}|null} */
 let current = null
 let statsTimer = null
+/** True once the swarm client exists; until then there is nothing to publish to. */
+let ready = false
+
 /** Infohashes kept on this device, refreshed whenever the list changes. */
 let keptHashes = new Set()
 
@@ -50,19 +54,25 @@ boot()
 
 async function boot () {
   servePolicyQueries()
+
+  // Wired before anything is awaited. If the worker is slow to take over, or
+  // never does, the page still responds — and a dropped folder is still caught
+  // rather than handed to the browser, which would navigate away from Spore.
+  window.addEventListener('hashchange', () => route())
+  ui.addressForm.addEventListener('submit', onAddressSubmit)
+  ui.scripts.addEventListener('change', onScriptsToggle)
+  ui.keep.addEventListener('change', onKeepToggle)
+  ui.copy.addEventListener('click', onCopy)
+  ui.shareDismiss.addEventListener('click', () => { ui.share.hidden = true })
+  wireDropTarget()
+
   try {
     const registration = await startWorker()
     startClient(registration)
   } catch (err) {
     return fail(err)
   }
-
-  window.addEventListener('hashchange', () => route())
-  ui.addressForm.addEventListener('submit', onAddressSubmit)
-  ui.scripts.addEventListener('change', onScriptsToggle)
-  ui.keep.addEventListener('change', onKeepToggle)
-  ui.copy.addEventListener('click', onCopy)
-  wireDropTarget()
+  ready = true
 
   // Kept sites come back before routing, so landing straight on one opens it
   // from disk instead of racing to add a second copy of the same torrent.
@@ -273,22 +283,55 @@ function onAddressSubmit (event) {
 /* Publishing                                                                  */
 /* -------------------------------------------------------------------------- */
 
+/** Does this drag carry files, as opposed to selected text or a link? */
+function draggingFiles (event) {
+  return [...(event.dataTransfer?.types ?? [])].includes('Files')
+}
+
+/**
+ * Publishing by drag and drop, handled across the whole window.
+ *
+ * Listening only on the dashed box was a bug worth naming: a folder dropped
+ * anywhere else — which is most of the page — fell through to the browser,
+ * which navigated away from Spore to open the file. From the reader's side
+ * that is indistinguishable from "drag and drop does not work".
+ *
+ * So the window cancels every file drag it sees. Nothing is ever handed to the
+ * browser's default handler, wherever it lands.
+ */
 function wireDropTarget () {
-  const zone = ui.dropzone
-
-  // Without cancelling dragover the browser navigates away to the dropped file.
-  for (const type of ['dragenter', 'dragover']) {
-    zone.addEventListener(type, event => {
-      event.preventDefault()
-      zone.classList.add('is-active')
-    })
-  }
-  for (const type of ['dragleave', 'drop']) {
-    zone.addEventListener(type, () => zone.classList.remove('is-active'))
+  // dragenter/dragleave fire for every element the pointer crosses, so count
+  // depth rather than trusting a single leave to mean the drag is over.
+  let depth = 0
+  const highlight = on => {
+    document.body.classList.toggle('is-dragging', on)
+    ui.dropzone.classList.toggle('is-active', on)
   }
 
-  zone.addEventListener('drop', async event => {
+  window.addEventListener('dragenter', event => {
+    if (!draggingFiles(event)) return
     event.preventDefault()
+    depth++
+    highlight(true)
+  })
+
+  window.addEventListener('dragover', event => {
+    if (!draggingFiles(event)) return
+    event.preventDefault() // without this the drop never fires at all
+    event.dataTransfer.dropEffect = 'copy'
+  })
+
+  window.addEventListener('dragleave', event => {
+    if (!draggingFiles(event)) return
+    if (--depth <= 0) { depth = 0; highlight(false) }
+  })
+
+  window.addEventListener('drop', async event => {
+    if (!draggingFiles(event)) return
+    event.preventDefault()
+    depth = 0
+    highlight(false)
+
     const { files, name } = await filesFromDrop(event.dataTransfer)
     seed(files, name)
   })
@@ -301,6 +344,9 @@ function wireDropTarget () {
 }
 
 async function seed (files, name) {
+  if (!ready) {
+    return fail(new Error('Spore is still starting up. Try that again in a moment.'))
+  }
   busy(`Hashing ${files.length} file${files.length === 1 ? '' : 's'}…`)
   try {
     const torrent = await publish(files, name)

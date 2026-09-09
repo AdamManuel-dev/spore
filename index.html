@@ -50,6 +50,18 @@
   </label>
 </header>
 
+<div id="share" class="share" hidden>
+  <p><strong>Published.</strong> Share this link — it works from any Spore mirror.</p>
+  <div class="share-row">
+    <input id="share-link" class="share-link" type="text" readonly>
+    <button id="copy" type="button">Copy link</button>
+    <button id="share-dismiss" type="button" aria-label="Dismiss">✕</button>
+  </div>
+  <p class="muted small">The site stays reachable while this tab is open, plus any
+     tab that has it open. Close them all and it goes dormant until someone with
+     a copy seeds it again. To keep it on this device, use "Keep offline".</p>
+</div>
+
 <main class="stage">
   <!--
     The site lives here, behind a sandbox. The real flags are set per site from
@@ -67,7 +79,7 @@
        reading one helps host it.</p>
 
     <div id="dropzone" class="dropzone">
-      <p><strong>Drop a folder here to publish it.</strong></p>
+      <p><strong>Drop a folder anywhere on this page to publish it.</strong></p>
       <p class="muted">It needs an <code>index.html</code> at the top and
          relative links. Nothing is uploaded to a server — this tab becomes the
          site's first seed.</p>
@@ -75,17 +87,6 @@
         <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
         <span class="button">Choose a folder…</span>
       </label>
-    </div>
-
-    <div id="share" class="share" hidden>
-      <p><strong>Published.</strong> Share this link — it works from any Spore mirror.</p>
-      <div class="share-row">
-        <input id="share-link" class="share-link" type="text" readonly>
-        <button id="copy" type="button">Copy link</button>
-      </div>
-      <p class="muted">The site stays reachable while this tab is open, plus any
-         tab that has it open. Close them all and it goes dormant until someone
-         with a copy seeds it again.</p>
     </div>
 
     <section id="kept" class="kept" hidden>
@@ -101,6 +102,10 @@
        swarm can see each other's IP addresses. It is not an anonymity tool.</p>
   </section>
 </main>
+
+<div id="drop-overlay" class="drop-overlay" aria-hidden="true">
+  <p>Drop the folder to publish it</p>
+</div>
 
 <footer class="statusbar">
   <span id="status">Starting…</span>

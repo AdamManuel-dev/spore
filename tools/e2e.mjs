@@ -231,6 +231,59 @@ async function run () {
     reopened === 'Scripts are on for this site.' && prompts.length === 0, reopened)
 
   await checkKeepingOffline(page, infoHash)
+  await checkPublishingByDrop(page)
+}
+
+/**
+ * Publishing through the actual UI, not by calling publish() directly.
+ *
+ * This is the path a reader uses and it was broken while every other check
+ * passed: the drop was only handled on the dashed box, so a folder dropped
+ * anywhere else fell through to the browser, which navigated away from the
+ * gate to open the file.
+ *
+ * A real folder drag cannot be synthesised — `webkitGetAsEntry` needs one from
+ * the OS — so this covers the wiring and the flat-file fallback around it.
+ */
+async function checkPublishingByDrop (page) {
+  await page.evaluate(() => { location.hash = '' })
+  await page.waitForFunction(() => !document.getElementById('welcome').hidden, { timeout: 10_000 })
+
+  const handled = await page.evaluate(() => {
+    const data = new DataTransfer()
+    data.items.add(new File(['<h1>dropped</h1>'], 'index.html', { type: 'text/html' }))
+
+    const dropOn = target => {
+      const event = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: data })
+      target.dispatchEvent(event)
+      return event.defaultPrevented
+    }
+    return {
+      dropzone: dropOn(document.getElementById('dropzone')),
+      body: dropOn(document.body),
+      header: dropOn(document.querySelector('.chrome'))
+    }
+  })
+  check('a folder dropped on the drop zone is handled', handled.dropzone)
+  check('a folder dropped anywhere else on the page is handled too, not opened by the browser',
+    handled.body && handled.header, JSON.stringify(handled))
+
+  await page.waitForFunction(() => !document.getElementById('share').hidden, { timeout: 30_000 })
+  const link = await page.$eval('#share-link', input => input.value)
+  check('dropping publishes and offers a shareable link', link.includes('#magnet:?xt=urn:btih:'), link.slice(0, 60))
+
+  // Dragging must announce itself across the whole window, or readers aim at
+  // the dashed box, miss, and conclude that dropping does not work.
+  const overlay = await page.evaluate(() => {
+    const data = new DataTransfer()
+    data.items.add(new File([''], 'x.html'))
+    document.body.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: data }))
+    const shown = getComputedStyle(document.getElementById('drop-overlay')).display
+    document.body.dispatchEvent(new DragEvent('dragleave', { bubbles: true, cancelable: true, dataTransfer: data }))
+    return { shown, hidden: getComputedStyle(document.getElementById('drop-overlay')).display }
+  })
+  check('dragging a file over the page shows where it can be dropped',
+    overlay.shown === 'flex' && overlay.hidden === 'none', JSON.stringify(overlay))
 }
 
 /**
