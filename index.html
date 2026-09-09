@@ -111,7 +111,21 @@
   <span id="status">Starting…</span>
   <span id="peers"></span>
   <span id="progress"></span>
+  <button id="diagnose" type="button" class="link">Diagnostics</button>
 </footer>
+
+<dialog id="diagnostics">
+  <h2>Diagnostics</h2>
+  <dl id="diagnostics-body"></dl>
+  <p class="muted small">Reset unregisters Spore's service worker and deletes
+     everything it has stored in this browser, including sites kept offline.
+     It does not touch anything else, and it is the cure for a Spore left in a
+     bad state by an older version.</p>
+  <div class="dialog-actions">
+    <button id="diagnostics-reset" type="button">Reset Spore in this browser</button>
+    <button id="diagnostics-close" type="button">Close</button>
+  </div>
+</dialog>
 
 <script type="module" src="js/app.js"></script>
 </body>

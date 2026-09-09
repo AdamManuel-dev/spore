@@ -38,9 +38,19 @@ comfortable serving to strangers.
 
 You can undo this at any time with "Forget", which deletes every byte.`
 
-/** @returns {Promise<boolean>} */
+/**
+ * @returns {Promise<boolean>}
+ *
+ * Never throws. This is on the path that renders a site, and a browser with
+ * storage switched off must still be able to read one — "not kept" is both the
+ * safe answer and the true one when nothing can be stored.
+ */
 export async function isKept (infoHash) {
-  return !!(await getSite(infoHash))
+  try {
+    return !!(await getSite(infoHash))
+  } catch {
+    return false
+  }
 }
 
 /** @returns {Promise<import('./idb.js').SiteRecord[]>} newest first */

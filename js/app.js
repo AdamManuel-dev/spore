@@ -6,6 +6,7 @@
  * to whichever host is serving this bundle.
  */
 
+import { collectDiagnostics, resetBrowserState } from './diagnostics.js'
 import { openDatabase, usage } from './idb.js'
 import { KEEP_WARNING, forget, isKept, keep, keptSites, restoreAll } from './keep.js'
 import { InvalidSiteRef, magnetFor, parseSiteRef } from './magnet.js'
@@ -37,6 +38,11 @@ const ui = {
   shareLink: el('share-link'),
   copy: el('copy'),
   shareDismiss: el('share-dismiss'),
+  diagnose: el('diagnose'),
+  diagnostics: el('diagnostics'),
+  diagnosticsBody: el('diagnostics-body'),
+  diagnosticsReset: el('diagnostics-reset'),
+  diagnosticsClose: el('diagnostics-close'),
   dropzone: el('dropzone'),
   folder: el('folder-input')
 }
@@ -64,6 +70,9 @@ async function boot () {
   ui.keep.addEventListener('change', onKeepToggle)
   ui.copy.addEventListener('click', onCopy)
   ui.shareDismiss.addEventListener('click', () => { ui.share.hidden = true })
+  ui.diagnose.addEventListener('click', showDiagnostics)
+  ui.diagnosticsClose.addEventListener('click', () => ui.diagnostics.close())
+  ui.diagnosticsReset.addEventListener('click', onReset)
   wireDropTarget()
 
   try {
@@ -82,9 +91,15 @@ async function boot () {
     ui.keepLabel.title = 'Unavailable: this browser is blocking site data.'
   }
 
-  // Kept sites come back before routing, so landing straight on one opens it
-  // from disk instead of racing to add a second copy of the same torrent.
-  await restoreKept()
+  // Deliberately not awaited. Restoring kept sites is a convenience; reading
+  // the site in the URL is the point. Blocking one on the other meant that a
+  // browser with unhealthy storage never got as far as opening anything, which
+  // reads as "Spore is broken" rather than "offline storage is unavailable".
+  //
+  // The cost is a race: landing directly on a kept site can add a second,
+  // memory-backed copy of a torrent already being restored. WebTorrent returns
+  // the existing torrent for a duplicate infohash, so the loser is discarded.
+  restoreKept()
 
   route()
 }
@@ -344,6 +359,38 @@ function renderKeptSite (site) {
 }
 
 /* -------------------------------------------------------------------------- */
+
+/* -------------------------------------------------------------------------- */
+/* Diagnostics                                                                 */
+/* -------------------------------------------------------------------------- */
+
+async function showDiagnostics () {
+  ui.diagnosticsBody.replaceChildren()
+  ui.diagnostics.showModal()
+
+  for (const row of await collectDiagnostics()) {
+    const term = document.createElement('dt')
+    term.textContent = row.label
+    const value = document.createElement('dd')
+    value.textContent = row.value
+    if (row.ok === true) value.className = 'good'
+    if (row.ok === false) value.className = 'bad'
+    ui.diagnosticsBody.append(term, value)
+  }
+}
+
+async function onReset () {
+  if (!confirm(
+    'Reset Spore in this browser?\n\n' +
+    "This unregisters Spore's service worker and deletes everything it has " +
+    'stored here, including any sites kept offline. Nothing outside Spore is ' +
+    'touched. The page will reload.')) return
+
+  ui.diagnosticsReset.disabled = true
+  const problems = await resetBrowserState()
+  if (problems.length > 0) console.warn('Spore: reset left some state behind:', problems)
+  location.reload()
+}
 
 function onAddressSubmit (event) {
   event.preventDefault()

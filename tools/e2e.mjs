@@ -247,6 +247,57 @@ async function run () {
 
   await checkKeepingOffline(page, infoHash)
   await checkPublishingByDrop(page)
+  await checkSurvivesDeadStorage(page)
+}
+
+/**
+ * Reading a site must not depend on being able to store one.
+ *
+ * Browsers set to block site data give a failing or hanging IndexedDB, and the
+ * gate used to take that personally: `render()` awaited `isKept()`, and an
+ * unopenable database turned into "Spore is broken" rather than "offline
+ * storage is unavailable". Simulated here by making `indexedDB.open` hang, the
+ * worst case, since a promise that never settles is what actually wedged it.
+ */
+async function checkSurvivesDeadStorage (page) {
+  const wedged = await browser.createBrowserContext()
+  const victim = await wedged.newPage()
+
+  await victim.evaluateOnNewDocument(() => {
+    indexedDB.open = () => ({ // never fires an event, either way
+      set onsuccess (_) {}, set onerror (_) {}, set onblocked (_) {}, set onupgradeneeded (_) {}
+    })
+  })
+
+  await victim.goto(origin + '/', { waitUntil: 'load' })
+  await victim.waitForFunction(
+    () => document.getElementById('status').textContent === 'Nothing open',
+    { timeout: 30_000 }).catch(() => {})
+  check('the gate finishes booting even when IndexedDB never answers',
+    (await victim.$eval('#status', el => el.textContent)) === 'Nothing open',
+    await victim.$eval('#status', el => el.textContent))
+
+  const hash = await victim.evaluate(async (site, paths) => {
+    const files = []
+    for (const path of paths) {
+      const res = await fetch(`/${site}/${path}`)
+      const file = new File([await res.blob()], path.split('/').pop())
+      file.fullPath = `${site}/${path}`
+      files.push(file)
+    }
+    const { publish } = await import('/js/publish.js')
+    return (await publish(files, site)).infoHash
+  }, SITE, SITE_FILES)
+
+  await victim.evaluate(h => { location.hash = h }, hash)
+  const shown = await victim.waitForFunction(() => {
+    const frame = document.getElementById('viewer')
+    return !frame.hidden && frame.src.includes('/webtorrent/')
+  }, { timeout: 30_000 }).then(() => true, () => false)
+  check('a site still opens when offline storage is unavailable', shown,
+    await victim.$eval('#notice', el => el.textContent.slice(0, 80)))
+
+  await wedged.close()
 }
 
 /**

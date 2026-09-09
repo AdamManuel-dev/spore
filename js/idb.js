@@ -19,19 +19,43 @@ const CHUNKS = 'chunks'
 
 let dbPromise = null
 
+/** Storage is optional, so waiting on it forever is never the right answer. */
+const OPEN_TIMEOUT_MS = 5000
+
 export function openDatabase () {
   if (dbPromise) return dbPromise
 
   dbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION)
+    // `indexedDB.open` can settle neither way — another tab holding the
+    // database across an upgrade, or a wedged profile — and a promise that
+    // never resolves would take the whole gate down with it if anything on
+    // the critical path awaited it.
+    const timer = setTimeout(
+      () => reject(new Error('IndexedDB did not respond; offline storage is unavailable.')),
+      OPEN_TIMEOUT_MS)
+    const settle = fn => value => { clearTimeout(timer); fn(value) }
+
+    let request
+    try {
+      request = indexedDB.open(DB_NAME, DB_VERSION)
+    } catch (err) {
+      // Throws outright when the browser is blocking site data.
+      return settle(reject)(err)
+    }
+
     request.onupgradeneeded = () => {
       const db = request.result
       if (!db.objectStoreNames.contains(SITES)) db.createObjectStore(SITES, { keyPath: 'infoHash' })
       if (!db.objectStoreNames.contains(CHUNKS)) db.createObjectStore(CHUNKS, { keyPath: ['infoHash', 'index'] })
     }
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
+    request.onsuccess = () => settle(resolve)(request.result)
+    request.onerror = () => settle(reject)(request.error)
+    request.onblocked = () => settle(reject)(
+      new Error('Another Spore tab is holding offline storage open. Close the others and reload.'))
   })
+
+  // A failed open must not be cached as the permanent answer.
+  dbPromise.catch(() => { dbPromise = null })
   return dbPromise
 }
 
