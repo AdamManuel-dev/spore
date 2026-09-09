@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  The gate's own policy. Static hosts cannot be relied on to send headers, so it
+  is declared here and travels with the bundle to any mirror.
+
+  `connect-src` has to allow arbitrary `wss:` because tracker URLs come out of
+  whatever magnet the reader pastes. Sites do not inherit this policy: the
+  service worker gives each of them a far narrower one of its own.
+-->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self';
+  style-src 'self';
+  img-src 'self' data:;
+  connect-src 'self' blob: ws: wss:;
+  worker-src 'self' blob:;
+  frame-src 'self';
+  base-uri 'none';
+  form-action 'none';
+  object-src 'none'">
+<title>Spore</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="chrome">
+  <span class="brand" title="Spore">✳</span>
+
+  <form id="address-form" class="address-form" autocomplete="off">
+    <input id="address" class="address" type="text" spellcheck="false"
+           placeholder="magnet:?xt=urn:btih:… or an infohash"
+           aria-label="Site address">
+    <button type="submit">Open</button>
+  </form>
+
+  <label id="scripts-label" class="scripts" hidden>
+    <input id="scripts-toggle" type="checkbox" disabled>
+    <span>Scripts</span>
+  </label>
+</header>
+
+<main class="stage">
+  <!--
+    The site lives here, behind a sandbox. `sandbox` is set from JS per site
+    (scripts are opt-in), but it is declared here too so the element is never
+    briefly unsandboxed. Nothing is loaded until then.
+  -->
+  <iframe id="viewer" class="viewer" sandbox="" src="about:blank" hidden
+          title="Hosted site"></iframe>
+
+  <p id="notice" class="notice" hidden></p>
+
+  <section id="welcome" class="welcome">
+    <h1>Spore</h1>
+    <p class="tagline">A browser inside the browser. Sites live in torrents;
+       reading one helps host it.</p>
+
+    <div id="dropzone" class="dropzone">
+      <p><strong>Drop a folder here to publish it.</strong></p>
+      <p class="muted">It needs an <code>index.html</code> at the top and
+         relative links. Nothing is uploaded to a server — this tab becomes the
+         site's first seed.</p>
+      <label class="pick">
+        <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
+        <span class="button">Choose a folder…</span>
+      </label>
+    </div>
+
+    <div id="share" class="share" hidden>
+      <p><strong>Published.</strong> Share this link — it works from any Spore mirror.</p>
+      <div class="share-row">
+        <input id="share-link" class="share-link" type="text" readonly>
+        <button id="copy" type="button">Copy link</button>
+      </div>
+      <p class="muted">The site stays reachable while this tab is open, plus any
+         tab that has it open. Close them all and it goes dormant until someone
+         with a copy seeds it again.</p>
+    </div>
+
+    <p class="muted small">Spore resists takedowns, not observation: peers in a
+       swarm can see each other's IP addresses. It is not an anonymity tool.</p>
+  </section>
+</main>
+
+<footer class="statusbar">
+  <span id="status">Starting…</span>
+  <span id="peers"></span>
+  <span id="progress"></span>
+</footer>
+
+<script src="vendor/webtorrent.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
