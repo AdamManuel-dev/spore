@@ -6,7 +6,7 @@
  * to whichever host is serving this bundle.
  */
 
-import { usage } from './idb.js'
+import { openDatabase, usage } from './idb.js'
 import { KEEP_WARNING, forget, isKept, keep, keptSites, restoreAll } from './keep.js'
 import { InvalidSiteRef, magnetFor, parseSiteRef } from './magnet.js'
 import { scriptsAllowed, servePolicyQueries, setScriptsAllowed } from './policy.js'
@@ -74,6 +74,14 @@ async function boot () {
   }
   ready = true
 
+  // Storage being unavailable is survivable — keeping sites offline is not —
+  // but the reader should know, because it also explains a lot of odd
+  // behaviour in a browser that is blocking site data.
+  if (!(await storageWorks())) {
+    console.warn('Spore: IndexedDB is unavailable, so sites cannot be kept offline.')
+    ui.keepLabel.title = 'Unavailable: this browser is blocking site data.'
+  }
+
   // Kept sites come back before routing, so landing straight on one opens it
   // from disk instead of racing to add a second copy of the same torrent.
   await restoreKept()
@@ -116,15 +124,69 @@ async function open (ref) {
   busy('Looking for peers…')
 
   try {
-    const torrent = await openTorrent(parsed.magnetURI)
+    const torrent = await openTorrent(parsed.magnetURI, watchJoining)
+    stopJoining()
+
     const entry = findEntry(torrent)
     if (!entry) throw new Error(`“${torrent.name}” has no index.html, so there is no page to show.`)
+
+    // Without a controller the iframe's request never reaches the worker and
+    // the reader gets the host's 404 instead of the site. Better to say so.
+    if (!navigator.serviceWorker.controller) {
+      throw new Error(
+        'Spore found the site but cannot display it: the service worker is not ' +
+        'running. Reload the page. (Service workers need HTTPS, and are ' +
+        'disabled in Firefox private windows.)')
+    }
 
     current = { torrent, ref }
     await render(torrent, entry)
   } catch (err) {
+    stopJoining()
     fail(err)
   }
+}
+
+/**
+ * Say what is actually happening while waiting for a swarm.
+ *
+ * "Looking for peers…" on its own is indistinguishable from a hung page, a
+ * dead tracker and a site nobody is seeding — all three of which look like
+ * "it doesn't work". Peer counts, elapsed time and tracker complaints tell
+ * those three apart without opening a console.
+ */
+let joiningTimer = null
+
+function watchJoining (torrent) {
+  stopJoining()
+  const startedAt = Date.now()
+  const trackerProblems = new Set()
+
+  const onWarning = err => {
+    const message = String(err?.message ?? err)
+    const tracker = /(wss?:\/\/[^\s/]+)/.exec(message)
+    if (tracker) trackerProblems.add(tracker[1])
+  }
+  torrent.on('warning', onWarning)
+
+  const tick = () => {
+    const seconds = Math.round((Date.now() - startedAt) / 1000)
+    const found = torrent.numPeers === 1 ? '1 peer' : `${torrent.numPeers} peers`
+    const trouble = trackerProblems.size > 0
+      ? ` · ${trackerProblems.size} tracker${trackerProblems.size === 1 ? '' : 's'} unreachable`
+      : ''
+    busy(`Looking for peers… ${found} after ${seconds}s${trouble}`)
+    ui.peers.textContent = found
+  }
+  tick()
+
+  joiningTimer = setInterval(tick, 1000)
+  torrent.once('metadata', stopJoining)
+}
+
+function stopJoining () {
+  clearInterval(joiningTimer)
+  joiningTimer = null
 }
 
 async function render (torrent, entry) {
@@ -209,6 +271,16 @@ async function onKeepToggle () {
     fail(err)
   } finally {
     ui.keep.disabled = false
+  }
+}
+
+/** Whether this browser will let us store anything at all. */
+async function storageWorks () {
+  try {
+    await openDatabase()
+    return true
+  } catch {
+    return false
   }
 }
 

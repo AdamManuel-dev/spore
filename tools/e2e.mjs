@@ -94,6 +94,21 @@ async function run () {
     { timeout: 20_000 })
   check('the gate boots and the swarm client starts', true)
 
+  // The viewer must fill the window and the status bar must sit on the bottom
+  // edge. A `grid-template-rows` list once handed the free space to the status
+  // bar instead, collapsing the viewer to the height of its content.
+  const layout = await page.evaluate(() => {
+    const box = selector => {
+      const { top, height } = document.querySelector(selector).getBoundingClientRect()
+      return { top: Math.round(top), height: Math.round(height) }
+    }
+    return { window: window.innerHeight, stage: box('.stage'), statusbar: box('.statusbar') }
+  })
+  check('the viewer fills the window and the status bar sits at the bottom',
+    layout.stage.height > layout.window / 2 &&
+    Math.abs(layout.statusbar.top + layout.statusbar.height - layout.window) <= 1,
+    JSON.stringify(layout))
+
   // --- publish -------------------------------------------------------------
   // Feeding the files in directly rather than through a drag-and-drop, which
   // no automation API can synthesise; publish() sees exactly what a drop gives.

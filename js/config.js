@@ -10,10 +10,13 @@
  * infrastructure in the MVP, so keep them visible rather than buried.
  */
 export const DEFAULT_TRACKERS = [
-  'wss://tracker.btorrent.xyz',
   'wss://tracker.openwebtorrent.com',
   'wss://tracker.webtorrent.dev'
 ]
+
+// Dropped: wss://tracker.btorrent.xyz. It is in WebTorrent's default list but
+// refuses connections (ECONNREFUSED), so every publish shipped a tracker that
+// could only produce a console error and a slower start.
 
 /** Path prefix the service worker answers on, relative to the gate's scope. */
 export const TORRENT_PATH = 'webtorrent'

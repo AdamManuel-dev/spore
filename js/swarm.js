@@ -26,10 +26,24 @@ export async function startWorker () {
     throw new Error('This browser has no service workers, so Spore cannot render sites. (HTTPS is required, except on localhost.)')
   }
 
-  const registration = await navigator.serviceWorker.register(
-    new URL('./sw.js', document.baseURI),
-    { scope: './' }
-  )
+  let registration
+  try {
+    registration = await navigator.serviceWorker.register(
+      new URL('./sw.js', document.baseURI),
+      { scope: './' }
+    )
+  } catch (err) {
+    // Overwhelmingly this is a browser set to block site data, which disables
+    // service workers outright. The message the browser gives is not useful.
+    throw new Error(
+      `Spore could not start its service worker, so it cannot display sites: ${err.message}. ` +
+      'This usually means this browser is blocking cookies and site data for ' +
+      'localhost, or the page is not on HTTPS.')
+  }
+
+  // A stale worker is a classic way to spend an afternoon on a bug that is
+  // already fixed: a static host may hand back a cached sw.js for a long time.
+  registration.update().catch(() => {})
 
   if (!navigator.serviceWorker.controller) {
     await new Promise(resolve => {
@@ -60,13 +74,16 @@ export function getClient () {
  * Idempotent: re-opening a site that is already in the client (a published one,
  * say) returns the existing torrent instead of joining twice.
  */
-export async function openTorrent (magnetURI) {
+export async function openTorrent (magnetURI, onJoin = () => {}) {
   const wt = getClient()
 
   const existing = await wt.get(magnetURI)
-  if (existing) return await withMetadata(existing)
+  const torrent = existing ?? wt.add(magnetURI)
 
-  return await withMetadata(wt.add(magnetURI))
+  // Handed over before the wait, so the caller can show what is happening
+  // instead of a spinner that means nothing.
+  onJoin(torrent)
+  return await withMetadata(torrent)
 }
 
 /** Seed files as a new torrent and wait until it is announceable. */
@@ -86,7 +103,10 @@ function withMetadata (torrent) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup()
-      reject(new Error('No peer answered. Nobody may be seeding this site right now.'))
+      reject(new Error(
+        'No peer answered in a minute. Nobody is seeding this site right now — ' +
+        'the tab that published it has to stay open, and so does at least one ' +
+        'tab that has it open.'))
     }, METADATA_TIMEOUT_MS)
 
     const onMetadata = () => { cleanup(); resolve(torrent) }
