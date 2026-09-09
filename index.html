@@ -92,18 +92,32 @@
 
   <section id="welcome" class="welcome">
     <h1>Spore</h1>
-    <p class="tagline">A browser inside the browser. Sites live in torrents;
-       reading one helps host it.</p>
+    <p class="tagline">A browser inside the browser. Sites live in torrents, so
+       reading one helps host it. No server, no account, nothing uploaded.</p>
 
-    <div id="dropzone" class="dropzone">
-      <p><strong>Drop a folder anywhere on this page to publish it.</strong></p>
-      <p class="muted">It needs an <code>index.html</code> at the top and
-         relative links. Nothing is uploaded to a server — this tab becomes the
-         site's first seed.</p>
-      <label class="pick">
-        <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
-        <span class="button">Choose a folder…</span>
-      </label>
+    <div class="choices">
+      <section class="choice">
+        <h2>Visit a site</h2>
+        <p class="muted">Paste a magnet link or an infohash somebody shared with
+           you. It is fetched from whoever has it, not from a web host.</p>
+        <form id="visit-form" class="visit-form" autocomplete="off">
+          <input id="visit" class="address" type="text" spellcheck="false"
+                 placeholder="magnet:?xt=urn:btih:…"
+                 aria-label="Magnet link or infohash">
+          <button type="submit">Open</button>
+        </form>
+      </section>
+
+      <section class="choice" id="dropzone">
+        <h2>Publish your own</h2>
+        <p class="muted">Drop a folder anywhere on this page. It needs an
+           <code>index.html</code> at the top and relative links. It is hashed
+           here in your browser, and this tab becomes its first seed.</p>
+        <label class="pick">
+          <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
+          <span class="button">Choose a folder…</span>
+        </label>
+      </section>
     </div>
 
     <section id="kept" class="kept" hidden>

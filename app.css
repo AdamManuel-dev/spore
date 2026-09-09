@@ -15,6 +15,12 @@
 
 * { box-sizing: border-box; }
 
+/* Any rule that sets `display` silently beats the browser's own
+   `[hidden] { display: none }`, which is how the viewer — `display: block` —
+   went on filling the page while hidden, pushing the welcome screen below the
+   fold behind a blank white rectangle. Stated once, for everything. */
+[hidden] { display: none !important; }
+
 html, body {
   height: 100%;
   margin: 0;
@@ -145,22 +151,48 @@ button:hover, .button:hover { border-color: var(--accent); }
   color: var(--muted);
 }
 
-.dropzone {
-  padding: 28px;
-  border: 1px dashed var(--line);
+/* Two ways in, side by side, because the gate has exactly two things to
+   offer and a reader arriving cold should not have to guess which is which. */
+
+.choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 16px;
+}
+
+.choice {
+  padding: 22px;
+  border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--panel);
-  text-align: center;
 }
 
-.dropzone.is-active {
+.choice h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.choice p {
+  margin: 0 0 16px;
+}
+
+/* The publish card is also the drop target, so it reacts to a drag. */
+#dropzone.is-active {
   border-color: var(--accent);
-  border-style: solid;
+  border-style: dashed;
 }
 
-.dropzone p { margin: 0 0 10px; }
+.visit-form {
+  display: flex;
+  gap: 8px;
+}
 
-.pick { display: inline-block; margin-top: 8px; }
+.visit-form .address {
+  flex: 1;
+  min-width: 0;
+}
+
+.pick { display: inline-block; }
 
 .share {
   flex: none;

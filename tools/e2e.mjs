@@ -109,6 +109,27 @@ async function run () {
     Math.abs(layout.statusbar.top + layout.statusbar.height - layout.window) <= 1,
     JSON.stringify(layout))
 
+  // With nothing open, the viewer must take up no room at all. `.viewer` sets
+  // `display: block`, which silently overrode the browser's own
+  // `[hidden] { display: none }` — so a blank white iframe filled the page and
+  // pushed the welcome screen below the fold, where nobody would find it.
+  const home = await page.evaluate(() => {
+    const viewer = document.getElementById('viewer')
+    const stage = document.querySelector('.stage').getBoundingClientRect()
+    const welcome = document.getElementById('welcome').getBoundingClientRect()
+    return {
+      viewerDisplay: getComputedStyle(viewer).display,
+      viewerHeight: Math.round(viewer.getBoundingClientRect().height),
+      welcomeStartsInView: Math.round(welcome.top - stage.top),
+      choices: document.querySelectorAll('#welcome .choice').length
+    }
+  })
+  check('with nothing open the viewer takes up no space',
+    home.viewerDisplay === 'none' && home.viewerHeight === 0, JSON.stringify(home))
+  check('the landing page starts at the top of the stage, not below the fold',
+    home.welcomeStartsInView === 0, JSON.stringify(home))
+  check('the landing page offers both ways in', home.choices === 2, JSON.stringify(home))
+
   // --- publish -------------------------------------------------------------
   // Feeding the files in directly rather than through a drag-and-drop, which
   // no automation API can synthesise; publish() sees exactly what a drop gives.
@@ -483,6 +504,17 @@ async function checkMissingSiteAndHome (page) {
     shown && view.code === '404' && view.viewerHidden, JSON.stringify(view))
   check('the missing-site page names the address that failed',
     view.ref === missing, view.ref)
+
+  // The landing page's own field is the primary call to action, so it has to
+  // navigate exactly like the address bar in the chrome does.
+  await page.click('#home')
+  await page.waitForFunction(() => !document.getElementById('welcome').hidden, { timeout: 10_000 })
+  await page.$eval('#visit', (input, value) => { input.value = value }, missing)
+  await page.click('#visit-form button')
+  await wait(1500)
+  check('the landing page field opens what it is given',
+    (await page.evaluate(() => location.hash)) === '#' + missing,
+    await page.evaluate(() => location.hash))
 
   // The logo is the way back, and it should leave a clean URL behind it.
   await page.click('#home')

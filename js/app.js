@@ -21,6 +21,8 @@ const el = id => document.getElementById(id)
 const ui = {
   address: el('address'),
   addressForm: el('address-form'),
+  visit: el('visit'),
+  visitForm: el('visit-form'),
   viewer: new Viewer(el('viewer')),
   welcome: el('welcome'),
   notice: el('notice'),
@@ -80,6 +82,7 @@ async function boot () {
   ui.errorHome.addEventListener('click', goHome)
   ui.errorRetry.addEventListener('click', () => { current = null; route() })
   ui.addressForm.addEventListener('submit', onAddressSubmit)
+  ui.visitForm.addEventListener('submit', onAddressSubmit)
   ui.scripts.addEventListener('change', onScriptsToggle)
   ui.keep.addEventListener('change', onKeepToggle)
   ui.copy.addEventListener('click', onCopy)
@@ -452,9 +455,14 @@ async function onReset () {
   location.reload()
 }
 
+/**
+ * Shared by the address bar and the landing page's own field: the same action,
+ * offered where a reader already is rather than only in the chrome.
+ */
 function onAddressSubmit (event) {
   event.preventDefault()
-  const value = ui.address.value.trim()
+  const field = event.target === ui.visitForm ? ui.visit : ui.address
+  const value = field.value.trim()
   if (value) navigate(value)
 }
 
@@ -567,6 +575,7 @@ function showWelcome () {
   ui.notice.hidden = true
   ui.error.hidden = true
   ui.address.value = ''
+  ui.visit.value = ''
   ui.scripts.disabled = true
   ui.scriptsLabel.hidden = true
   ui.keep.disabled = true
