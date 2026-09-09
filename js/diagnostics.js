@@ -13,11 +13,17 @@ export async function collectDiagnostics () {
   const add = (label, value, ok) => rows.push({ label, value, ok })
 
   add('Page origin', location.origin, null)
-  add('Secure context', window.isSecureContext ? 'yes' : 'no — service workers need HTTPS',
-    window.isSecureContext)
+  add('Secure context', window.isSecureContext
+    ? 'yes'
+    : 'NO — this is why Spore cannot display sites', window.isSecureContext)
 
   if (!('serviceWorker' in navigator)) {
-    add('Service worker', 'not supported by this browser', false)
+    // Browsers hide the whole API on an insecure origin, so "not supported"
+    // would blame the browser for what is really the address bar's fault.
+    add('Service worker', window.isSecureContext
+      ? 'not supported by this browser'
+      : `unavailable because ${location.origin} is not a secure origin — ` +
+        'serve Spore over HTTPS, or reach it on localhost', false)
   } else {
     const controller = navigator.serviceWorker.controller
     add('Worker controlling', controller ? 'yes' : 'NO — sites cannot be displayed', !!controller)

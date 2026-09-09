@@ -22,6 +22,25 @@ Any static host over HTTPS works just as well; `tools/serve.mjs` exists only
 because service workers need a secure context and `file://` is not one
 (`localhost` is exempt).
 
+### Testing on a phone, or any other device
+
+```sh
+node tools/serve.mjs 8080 --tls    # prints the LAN URLs to type
+```
+
+`--tls` is not optional here, and the reason is worth knowing before you file a
+bug against a browser. A service worker requires a **secure context**, and
+`localhost` is the only insecure origin browsers exempt. Reaching the dev server
+at `http://192.168.x.x` therefore gets you no service worker at all — the API is
+switched off entirely — and Spore serves every site through one. Mobile Firefox
+and Chrome will report exactly this under **Diagnostics**.
+
+The certificate is self-signed, so each device accepts the warning once. After
+that the origin is a secure context and everything behaves normally.
+
+**In production this is a non-issue**: served over HTTPS from any static host,
+mobile browsers get a service worker like desktop ones do.
+
 Then either drop `example-site/` onto the page to publish it, or paste a magnet
 into the address bar.
 
