@@ -200,16 +200,26 @@ export function seedTorrent (files, opts) {
   })
 }
 
+/**
+ * Nobody answered for this infohash. Typed, because it is the ordinary way for
+ * a site to be missing — the equivalent of a 404 — and the gate shows it very
+ * differently from something having gone wrong.
+ */
+export class SiteNotFound extends Error {
+  constructor (infoHash) {
+    super('No peer answered for this site.')
+    this.name = 'SiteNotFound'
+    this.infoHash = infoHash
+  }
+}
+
 function withMetadata (torrent) {
   if (torrent.ready) return Promise.resolve(torrent)
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup()
-      reject(new Error(
-        'No peer answered in a minute. Nobody is seeding this site right now — ' +
-        'the tab that published it has to stay open, and so does at least one ' +
-        'tab that has it open.'))
+      reject(new SiteNotFound(torrent.infoHash))
     }, METADATA_TIMEOUT_MS)
 
     const onMetadata = () => { cleanup(); resolve(torrent) }

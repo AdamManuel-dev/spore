@@ -46,10 +46,18 @@ body {
 }
 
 .brand {
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
   color: var(--accent);
   font-size: 20px;
   line-height: 1;
+  cursor: pointer;
 }
+
+.brand:hover { background: var(--line); }
+.brand:focus-visible { outline: 2px solid var(--accent); }
 
 .address-form {
   display: flex;
@@ -331,4 +339,57 @@ body.is-dragging .drop-overlay { display: flex; }
   gap: 8px;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+/* --- the missing-site page ---------------------------------------------- */
+
+/* A site nobody is seeding is a normal outcome, so it gets a page rather than
+   an error banner — the same courtesy a web server extends to a missing URL. */
+
+.error {
+  margin: 0 auto;
+  padding: 60px 20px;
+  max-width: 34rem;
+  text-align: center;
+}
+
+.error-code {
+  margin: 0;
+  color: var(--line);
+  font: 700 72px/1 var(--mono);
+  letter-spacing: .05em;
+}
+
+.error h1 {
+  margin: 8px 0 12px;
+  font-size: 20px;
+}
+
+.error-detail {
+  margin: 0 0 20px;
+  color: var(--muted);
+  text-align: left;
+}
+
+.error-ref {
+  margin: 0 0 24px;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.error-ref code {
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.error-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
 }

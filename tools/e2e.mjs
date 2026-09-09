@@ -265,6 +265,7 @@ async function run () {
   await checkSurvivesDeadStorage(page)
   await checkStuckViewerIsDetected(page)
   await checkUncontrolledPageRecovers(page)
+  await checkMissingSiteAndHome(page)
 }
 
 /**
@@ -426,6 +427,67 @@ async function checkKeepingOffline (page, infoHash) {
     open.onerror = () => resolve(-1)
   }))
   check('forgetting deletes the stored bytes, not just the record', chunks === 0, `${chunks} chunks left`)
+}
+
+/**
+ * A site nobody seeds gets a page, and the logo gets you out of it.
+ *
+ * An infohash with no seeder is the swarm's version of a dead URL, so it earns
+ * what a web server gives one: a 404 that explains itself. Uses a hash nothing
+ * can possibly be seeding, and a shortened timeout so the check does not sit
+ * through the full minute the gate allows a real swarm.
+ */
+async function checkMissingSiteAndHome (page) {
+  const missing = 'ffffffffffffffffffffffffffffffffffffffff'
+
+  // Deliberately the slow path. An earlier version of this check faked the
+  // failure by emitting an error on the torrent, which took the generic branch
+  // and never exercised the 404 at all — it passed while proving nothing. This
+  // waits out the real timeout so the real error travels the real route.
+  await page.evaluate(hash => { location.hash = hash }, missing)
+
+  // Polled in short steps rather than one long waitForFunction: the browser is
+  // launched with a 30s protocolTimeout, which aborts any single CDP call that
+  // outlives it — including a wait. That is what made an earlier version of
+  // this check read the page's defaults and report a passing 404 it had never
+  // actually seen.
+  let shown = false
+  for (let waited = 0; waited < 90_000 && !shown; waited += 2000) {
+    await wait(2000)
+    shown = await page.evaluate(() => !document.getElementById('error').hidden)
+  }
+
+  const view = await page.evaluate(() => ({
+    code: document.getElementById('error-code').textContent,
+    title: document.getElementById('error-title').textContent,
+    ref: document.getElementById('error-ref').textContent,
+    welcomeHidden: document.getElementById('welcome').hidden,
+    viewerHidden: document.getElementById('viewer').hidden
+  }))
+  check('a site nobody is seeding gets a 404 page, not a red line',
+    shown && view.code === '404' && view.viewerHidden, JSON.stringify(view))
+  check('the missing-site page names the address that failed',
+    view.ref === missing, view.ref)
+
+  // The logo is the way back, and it should leave a clean URL behind it.
+  await page.click('#home')
+  await page.waitForFunction(() => !document.getElementById('welcome').hidden, { timeout: 10_000 })
+  const home = await page.evaluate(() => ({
+    hash: location.hash,
+    welcome: !document.getElementById('welcome').hidden,
+    error: document.getElementById('error').hidden
+  }))
+  check('the logo goes home, leaving no stray fragment behind',
+    home.welcome && home.error && home.hash === '', JSON.stringify(home))
+
+  // And the browser's own back button still works across that transition.
+  await page.goBack()
+  await wait(1500)
+  check('back returns to the address that was open',
+    (await page.evaluate(() => location.hash)) === '#' + missing,
+    await page.evaluate(() => location.hash))
+  await page.evaluate(() => history.pushState(null, '', location.pathname))
+  await page.evaluate(() => { location.hash = '' })
 }
 
 /**

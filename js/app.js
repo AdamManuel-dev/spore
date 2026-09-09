@@ -13,7 +13,7 @@ import { InvalidSiteRef, magnetFor, parseSiteRef } from './magnet.js'
 import { scriptsAllowed, servePolicyQueries, setScriptsAllowed } from './policy.js'
 import { filesFromDrop, filesFromInput, publish } from './publish.js'
 import { entryURL, findEntry } from './site.js'
-import { getClient, openTorrent, startClient, startWorker } from './swarm.js'
+import { SiteNotFound, getClient, openTorrent, startClient, startWorker } from './swarm.js'
 import { Viewer } from './viewer.js'
 
 const el = id => document.getElementById(id)
@@ -38,6 +38,14 @@ const ui = {
   shareLink: el('share-link'),
   copy: el('copy'),
   shareDismiss: el('share-dismiss'),
+  home: el('home'),
+  error: el('error'),
+  errorCode: el('error-code'),
+  errorTitle: el('error-title'),
+  errorDetail: el('error-detail'),
+  errorRef: el('error-ref'),
+  errorRetry: el('error-retry'),
+  errorHome: el('error-home'),
   diagnose: el('diagnose'),
   diagnostics: el('diagnostics'),
   diagnosticsBody: el('diagnostics-body'),
@@ -65,6 +73,12 @@ async function boot () {
   // never does, the page still responds — and a dropped folder is still caught
   // rather than handed to the browser, which would navigate away from Spore.
   window.addEventListener('hashchange', () => route())
+  // pushState does not fire hashchange, and going home uses it so the URL is
+  // left clean rather than trailing a bare '#'. Back and forward need this too.
+  window.addEventListener('popstate', () => route())
+  ui.home.addEventListener('click', goHome)
+  ui.errorHome.addEventListener('click', goHome)
+  ui.errorRetry.addEventListener('click', () => { current = null; route() })
   ui.addressForm.addEventListener('submit', onAddressSubmit)
   ui.scripts.addEventListener('change', onScriptsToggle)
   ui.keep.addEventListener('change', onKeepToggle)
@@ -117,6 +131,19 @@ function navigate (ref) {
   const encoded = `#${ref}`
   if (location.hash === encoded) route()
   else location.hash = encoded
+}
+
+/**
+ * Back to the start, from the logo or from a missing-site page.
+ *
+ * `pushState` rather than clearing `location.hash`, which would leave a bare
+ * '#' hanging off the URL. It does not fire `hashchange`, so routing is called
+ * directly; `popstate` is wired so the browser's own back button still works.
+ */
+function goHome () {
+  if (!location.hash) return
+  history.pushState(null, '', location.pathname + location.search)
+  route()
 }
 
 async function route () {
@@ -216,6 +243,7 @@ async function render (torrent, entry) {
   const shown = ui.viewer.show(entryURL(torrent.infoHash, entry), { scripts: allowed })
   ui.welcome.hidden = true
   ui.notice.hidden = true
+  ui.error.hidden = true
   ui.status.textContent = torrent.name ?? torrent.infoHash
 
   watchStats(torrent)
@@ -536,6 +564,7 @@ function showWelcome () {
   ui.viewer.clear()
   ui.welcome.hidden = false
   ui.notice.hidden = true
+  ui.error.hidden = true
   ui.address.value = ''
   ui.scripts.disabled = true
   ui.scriptsLabel.hidden = true
@@ -562,19 +591,72 @@ function busy (message) {
   ui.notice.className = 'notice'
   ui.notice.hidden = false
   ui.welcome.hidden = true
+  ui.error.hidden = true
 }
 
+/**
+ * Something went wrong opening a site — show a page about it, not a red line.
+ *
+ * A site nobody is seeding is by far the commonest of these, and it is not a
+ * malfunction: it is the swarm equivalent of a URL that no longer resolves. It
+ * gets what a web server would give it, a 404 page that says what happened and
+ * offers somewhere to go next.
+ */
 function fail (error) {
   current = null
   stopStats()
   ui.viewer.clear()
-  ui.notice.textContent = error instanceof InvalidSiteRef || error instanceof Error
-    ? error.message
-    : String(error)
-  ui.notice.className = 'notice notice--error'
-  ui.notice.hidden = false
+
+  const { code, title, detail, retry } = describe(error)
+  ui.errorCode.textContent = code
+  ui.errorTitle.textContent = title
+  ui.errorDetail.textContent = detail
+  ui.errorRef.textContent = currentRef() || ''
+  ui.errorRef.parentElement.hidden = !currentRef()
+  ui.errorRetry.hidden = !retry
+
+  ui.error.hidden = false
+  ui.notice.hidden = true
   ui.welcome.hidden = true
-  ui.status.textContent = 'Failed'
+  ui.scripts.disabled = true
+  ui.scriptsLabel.hidden = true
+  ui.keep.disabled = true
+  ui.keepLabel.hidden = true
+  ui.status.textContent = title
+  ui.peers.textContent = ''
+  ui.progress.textContent = ''
+}
+
+/** Turn a failure into something worth reading. */
+function describe (error) {
+  if (error instanceof SiteNotFound) {
+    return {
+      code: '404',
+      title: 'This site could not be found',
+      detail:
+        'No peer answered for it. A site exists only while somebody is seeding ' +
+        'it: the tab that published it has to stay open, and so does at least ' +
+        'one tab that has it open. If everyone has closed theirs, the site is ' +
+        'dormant until someone with a copy opens it again — the bytes are not ' +
+        'lost, there is just nobody holding them right now.',
+      retry: true
+    }
+  }
+  if (error instanceof InvalidSiteRef) {
+    return {
+      code: '???',
+      title: 'That is not a site address',
+      detail: error.message + ' A site address is a magnet link, or the 40-character ' +
+        'infohash inside one.',
+      retry: false
+    }
+  }
+  return {
+    code: ':(',
+    title: 'This site could not be opened',
+    detail: error instanceof Error ? error.message : String(error),
+    retry: true
+  }
 }
 
 function watchStats (torrent) {

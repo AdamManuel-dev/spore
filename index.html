@@ -28,7 +28,8 @@
 <body>
 
 <header class="chrome">
-  <span class="brand" title="Spore">✳</span>
+  <button id="home" class="brand" type="button"
+          title="Spore — back to the start" aria-label="Spore home">✳</button>
 
   <form id="address-form" class="address-form" autocomplete="off">
     <input id="address" class="address" type="text" spellcheck="false"
@@ -72,6 +73,22 @@
           title="Hosted site"></iframe>
 
   <p id="notice" class="notice" hidden></p>
+
+  <!--
+    A site that nobody is seeding is the ordinary case, not a malfunction, and
+    it deserves the same treatment a web server gives a missing page rather
+    than a line of red text.
+  -->
+  <section id="error" class="error" hidden>
+    <p id="error-code" class="error-code">404</p>
+    <h1 id="error-title"></h1>
+    <p id="error-detail" class="error-detail"></p>
+    <p class="error-ref"><code id="error-ref"></code></p>
+    <div class="error-actions">
+      <button id="error-retry" type="button">Try again</button>
+      <button id="error-home" type="button">Publish a site instead</button>
+    </div>
+  </section>
 
   <section id="welcome" class="welcome">
     <h1>Spore</h1>
