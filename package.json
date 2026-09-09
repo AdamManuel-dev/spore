@@ -1,0 +1,7 @@
+{
+  "name": "spore",
+  "private": true,
+  "type": "module",
+  "description": "A browser inside the browser: static sites hosted in torrents.",
+  "license": "MIT"
+}

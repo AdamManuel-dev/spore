@@ -125,6 +125,30 @@ npm install webtorrent node-datachannel
 node tools/seed.mjs ./my-site
 ```
 
+### With Docker
+
+```sh
+mkdir -p site data
+cp -r your-website/. site/
+docker compose up -d
+docker compose logs        # the magnet is printed once, at startup
+```
+
+`site/` is your website; `data/` holds the pinned `.torrent`. **Keep `data/`.**
+It is what makes the magnet survive restarts, rebuilds and moving to another
+machine — verified: restart the container and the same infohash comes back,
+because it seeds the stored torrent rather than re-hashing the folder.
+
+Nothing needs to be exposed. WebRTC connections are established outbound
+through the trackers, so there are no ports to forward and none are published.
+
+One thing that looks like a bug and is not, so it is worth stating: the site
+volume is **not** mounted read-only. Seeding a pinned torrent goes through
+WebTorrent's `add()`, which opens the files read-write to verify them. Mounted
+`:ro` the seeder connects to peers and then serves nothing — verification fails
+quietly and it has no verified pieces to offer. It looks exactly like
+`1 peer, progress 0.00` and never finishing.
+
 It prints the magnet and holds it. Verified end to end: the seeder reported
 `1 peer  ↑ 15 kB` while a browser gate rendered the site from it in about six
 seconds, with no other peer anywhere.
@@ -142,7 +166,21 @@ node tools/seed.mjs my-site.torrent --path /srv/sites
 what is already on disk and seeds it under the original infohash.
 
 Keep it running however you keep anything running — `systemd`, `pm2`, a
-`tmux` window. Nothing about Spore cares which.
+`tmux` window, `docker compose up -d`. Nothing about Spore cares which.
+
+### What "permanent" does and does not mean
+
+The link keeps working for as long as something is seeding it, and this is that
+something. Two limits worth understanding before you rely on it:
+
+- **Editing the site changes its address.** Content *is* the address here, so a
+  new version is a new magnet, and the old link goes on serving the old bytes
+  until nobody holds them. Mutable addresses are a later phase. In the
+  meantime, a site you expect to edit is better announced with the gate URL you
+  control and a fresh magnet each time.
+- **One seeder is one point of failure**, which is the thing Spore is supposed
+  to avoid. The seeder makes a site *available*; readers keeping it open are
+  what make it *resilient*. They are not the same property.
 
 ## Keeping a site
 

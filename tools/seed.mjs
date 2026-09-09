@@ -14,8 +14,9 @@
  *
  *   npm install webtorrent node-datachannel
  *
- *   node tools/seed.mjs ./my-site                 # publish and seed a folder
- *   node tools/seed.mjs site.torrent --path ./..  # seed an existing torrent
+ *   node tools/seed.mjs ./my-site                    # publish and seed a folder
+ *   node tools/seed.mjs ./my-site --torrent s.torrent  # …with a pinned link
+ *   node tools/seed.mjs s.torrent --path ./parent    # seed an existing torrent
  *
  * The second form is the one to use for a site already published from a
  * browser: re-creating a torrent from the same folder does not reliably
@@ -24,21 +25,28 @@
  * contains it.
  */
 
-import { readFileSync, existsSync } from 'node:fs'
-import { basename, resolve } from 'node:path'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { basename, dirname, resolve } from 'node:path'
 
 import { DEFAULT_TRACKERS } from '../js/config.js'
 
 const args = process.argv.slice(2)
 const target = args.find(arg => !arg.startsWith('--'))
-const pathIndex = args.indexOf('--path')
-const contentPath = pathIndex === -1 ? process.cwd() : resolve(args[pathIndex + 1])
+const option = name => {
+  const at = args.indexOf(name)
+  return at === -1 ? null : args[at + 1]
+}
+const contentPath = option('--path') ? resolve(option('--path')) : process.cwd()
+const pinned = option('--torrent') ? resolve(option('--torrent')) : null
 
 if (!target) {
   console.error(`Seed a Spore site from this machine.
 
   node tools/seed.mjs <folder>                     publish a folder and seed it
   node tools/seed.mjs <file.torrent> --path <dir>  seed a site already published
+
+  --torrent <file>   write the .torrent here on first run and reuse it after,
+                     so the magnet stays identical for the life of the site
 
 Needs: npm install webtorrent node-datachannel`)
   process.exit(2)
@@ -104,6 +112,19 @@ function start () {
   return new Promise((resolve_, reject) => {
     client.on('error', reject)
 
+    // A pinned torrent already written: seed exactly that, so the link never
+    // moves. Re-hashing the folder happens to be reproducible on one machine,
+    // but nothing guarantees it across filesystems — and a changed infohash is
+    // a changed address, which is the one thing permanent hosting cannot do.
+    if (pinned && existsSync(pinned) && !isTorrentFile) {
+      // The torrent's own file paths start with the folder's name
+      // ("my-site/index.html"), so the store has to be rooted at the folder's
+      // parent — pointing it at the folder itself looks for "my-site/my-site".
+      console.log(`Seeding the pinned torrent ${basename(pinned)}…`)
+      const kept = client.add(readFileSync(pinned), { path: dirname(source) }, () => resolve_(kept))
+      return
+    }
+
     if (isTorrentFile) {
       // `path` is the directory the torrent's own files live under. WebTorrent
       // verifies what is already there and seeds it, which is why the infohash
@@ -112,7 +133,13 @@ function start () {
       const added = client.add(readFileSync(source), { path: contentPath }, () => resolve_(added))
     } else {
       console.log(`Hashing ${source}…`)
-      client.seed(source, { announceList }, seeded => resolve_(seeded))
+      client.seed(source, { announceList }, seeded => {
+        if (pinned) {
+          writeFileSync(pinned, seeded.torrentFile)
+          console.log(`Wrote ${pinned} — keep it, and this magnet stays valid forever.`)
+        }
+        resolve_(seeded)
+      })
     }
   })
 }

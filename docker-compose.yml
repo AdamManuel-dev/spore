@@ -1,0 +1,28 @@
+# Seed one site, permanently.
+#
+#   mkdir -p site data && cp -r your-website/. site/
+#   docker compose up
+#
+# The magnet is printed once at startup. It is pinned in data/site.torrent, so
+# it stays the same across restarts and rebuilds — keep that file and the link
+# you shared never breaks.
+#
+# Editing the site changes its content, and content is the address here: you
+# will get a new magnet and the old link keeps serving the old bytes until
+# nobody holds them. Mutable addresses are a later phase of the project.
+
+services:
+  seeder:
+    build: .
+    restart: unless-stopped
+    volumes:
+      # Not :ro, and it is worth knowing why. Seeding a pinned torrent goes
+      # through WebTorrent's add(), which opens the files read-write to verify
+      # them against the torrent. Mounted read-only it connects to peers and
+      # then serves nothing at all: verification silently fails, so it has no
+      # verified pieces to offer. Observed as "1 peer, progress 0.00, forever".
+      - ./site:/site
+      - ./data:/data
+    # Nothing to publish inbound. WebRTC connections are established outbound
+    # through the trackers, so no ports need forwarding and none are exposed.
+    network_mode: bridge
