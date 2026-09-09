@@ -195,6 +195,69 @@ mismatch       ◈ ⚠ this is NOT the key you know as "Hacker One"
 The last state is the entire point of storing keys, and the only one that
 catches a substitution.
 
+### The phone book
+
+The model is caller ID. A call announcing "this is Abraham Lincoln" tells you
+nothing — the display is under the caller's control. A number already in your
+phone book tells you a great deal, and the reason is not the phone: it is that
+the entry got there through some earlier event you trusted. Someone gave you
+the number.
+
+Everything above is the caller ID. What follows is how an entry gets into the
+book.
+
+### Introductions
+
+An author can present themselves as a link:
+
+```
+https://<any-gate>/#author=<64 hex>&name=Hacker%20One
+```
+
+Opening it does not fetch or publish anything. The gate shows the avatar, the
+word fingerprint, the claimed name — as a claim — and offers to save the author
+under a petname.
+
+The link is not secret and proves nothing on its own; a public key is public,
+and anyone who copies it can send it on. **The trust comes from the channel,
+not the link.** Received in a message from someone you already know, or read
+off a slide by a speaker you are watching, it is exactly the out-of-band step
+the model needs. Scraped from a random page, it is worth what the page is
+worth. Implementations should say so at the moment of trusting, because that is
+the only moment the distinction is actionable.
+
+The same key travels a second way: in `spore.pub`, inside every site the author
+publishes. Someone who reads a site and later receives an introduction — or the
+reverse — ends up at the same key, and the gate can say they match.
+
+### Deriving a key from a passphrase
+
+An author's key may be derived from a passphrase rather than stored in a file,
+which means nothing to back up and the ability to publish from any machine.
+
+This is not a login, and calling it one would mislead. There is no account, no
+server, and nothing to check the passphrase against: **every passphrase
+produces a valid key**, just a different one. A typo does not fail, it silently
+makes you a different author, and the first symptom is readers seeing a
+stranger.
+
+Two consequences for any implementation offering it:
+
+- Show the avatar and fingerprint the instant a passphrase is entered, before
+  anything is signed. A wrong passphrase is then visible as a wrong picture.
+- The gate MAY remember the *public* key of the identity used on that device,
+  purely to warn that a freshly entered passphrase produced a different one.
+  This stores nothing secret and catches the common failure.
+
+The private key SHOULD be held in memory only and never written to storage.
+Publishing is rare; re-entering a passphrase for it is a small cost against
+keeping the one irrecoverable secret out of the disk entirely.
+
+The security caveat from earlier applies with full force: the public key is
+public, so a passphrase can be attacked offline with no rate limit, exactly
+like a cryptocurrency brain wallet. A generated multi-word passphrase, not a
+free-text field.
+
 ### Verifying a claim
 
 Spore has no messaging and should not grow any — that would be another service
@@ -303,6 +366,19 @@ made.
 series — a site and its changelog, say. Reserved and unused for now; adding it
 later changes the DHT target and the rendezvous construction, so it should be
 decided before anything ships.
+
+**Duplicate petnames.** Two people can send introductions claiming the same
+name, and a reader can be careless. Petnames must be unique within one reader's
+book, so an implementation has to refuse or disambiguate a collision — and the
+collision is itself worth showing, since it is what an impersonation attempt
+looks like from the inside.
+
+**The introduction link format.** `#author=<hex>&name=…` is readable and cannot
+be confused with a magnet or a bare infohash, which are the other things a
+fragment can hold. It is not otherwise defended; a shorter or signed form may
+be better. A signed introduction would prove the key holder authored the
+claimed name, which is a smaller guarantee than it sounds — the name is still
+self-asserted — so it probably is not worth the bytes.
 
 **The wordlist.** Fingerprint words must be fixed by this specification or two
 implementations will disagree about the same key, which is worse than having no
