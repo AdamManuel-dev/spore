@@ -34,34 +34,44 @@ response headers — where the policy actually lives — are ours to set.
 
 ## Layer 1 — Content-Security-Policy, per site
 
-`sw.js` attaches a policy to every response. It is built per infohash, so the
-allowed sources are an absolute, path-scoped URL prefix:
+`sw.js` attaches a policy to every response:
 
 ```
 default-src 'none';
 base-uri 'none'; object-src 'none'; form-action 'none';
 frame-ancestors <gate-origin>;
-img-src    <gate-origin>/webtorrent/<infoHash>/ data: blob:;
-media-src  <gate-origin>/webtorrent/<infoHash>/ blob:;
-font-src   <gate-origin>/webtorrent/<infoHash>/ data:;
-style-src  <gate-origin>/webtorrent/<infoHash>/ 'unsafe-inline';
-frame-src  <gate-origin>/webtorrent/<infoHash>/;
-child-src  <gate-origin>/webtorrent/<infoHash>/;
-script-src  'none'   |  <…>/<infoHash>/ 'unsafe-inline'   (opt-in)
-connect-src 'none'   |  <…>/<infoHash>/                   (opt-in)
-worker-src  'none'   |  <…>/<infoHash>/                   (opt-in)
+img-src     'self' data: blob:;
+media-src   'self' blob:;
+font-src    'self' data:;
+style-src   'self' 'unsafe-inline';
+frame-src   'self';
+child-src   'self';
+script-src  'none'  |  'self' 'unsafe-inline'   (opt-in)
+connect-src 'none'  |  'self'                   (opt-in)
+worker-src  'none'  |  'self'                   (opt-in)
 ```
 
 Why it is written this way:
 
 - **`default-src 'none'` with an explicit allowlist.** Anything we did not think
   of is denied rather than allowed. New CSP-governed features arrive denied.
-- **A path prefix, not `'self'`.** CSP matches source expressions by path
-  prefix. Naming `/webtorrent/<infoHash>/` is what stops one torrent from
-  loading another torrent's files: they share an origin, so `'self'` would let
-  them read each other.
-- **No external origins anywhere.** This is the egress block. It applies to
-  images, stylesheets, fonts, media and frames, not only to scripts.
+- **No external origins anywhere.** This is the egress block, and it is the job
+  CSP does here. It applies to images, stylesheets, fonts, media and frames, not
+  only to scripts.
+
+### Why isolation between torrents is *not* done with CSP
+
+The first version pinned every source to `<gate-origin>/webtorrent/<infoHash>/`
+and leaned on CSP path-prefix matching to keep one torrent out of another's
+files. Chrome and Chromium enforce that correctly. Firefox refused a site's own
+worker-served stylesheets and images under the same policy — `site.css` and
+`leaf.svg` came back `NS_ERROR_CONTENT_BLOCKED`, and pages rendered unstyled
+with broken images, while an identical path-scoped policy over plain HTTP
+worked fine in Firefox. Adding `'self'` fixed it, which is what identified the
+path-scoped source as the cause.
+
+A boundary that one browser enforces and another over-enforces is in the wrong
+place. The check moved into the worker, below.
 - **`'unsafe-inline'` for styles.** Real static sites use `<style>` blocks and
   `style=` attributes, and forbidding them would break most of the web we want
   to host. A stylesheet cannot exfiltrate by itself: what it may *load* is still
@@ -74,7 +84,26 @@ Why it is written this way:
 the same responses. The `Access-Control-Allow-Origin: *` that WebTorrent would
 otherwise send is narrowed to the gate itself.
 
-## Layer 2 — the sandboxed iframe
+## Layer 2 — the worker refuses cross-torrent reads
+
+Sites share the gate's origin (see below), so nothing in the platform separates
+them by default. `sw.js` does it directly: before serving
+`/webtorrent/<A>/<path>`, it works out which torrent is asking and refuses with
+**403** if that is some other torrent `<B>`.
+
+Who is asking comes from `event.clientId`, which names the document making the
+request — the worker's own view of it, not anything the site can set. Navigation
+requests arrive with no client, so the referrer stands in; that is why responses
+carry `Referrer-Policy: same-origin` rather than `no-referrer`. Nothing leaks by
+doing so, because a site cannot reach anything off this origin anyway.
+
+This holds in the hardest case — a site with scripts enabled, whose
+`connect-src 'self'` permits same-origin requests. It may read its own torrent
+(`200`) and is refused another's (`403`), and `tools/e2e.mjs` asserts exactly
+that pair. It behaves identically in every browser, because it is our code
+rather than a policy feature we hoped was uniform.
+
+## Layer 3 — the sandboxed iframe
 
 Sites render in an iframe whose sandbox grants only `allow-same-origin`
 (plus `allow-scripts` when opted in). Everything else is withheld: no top-level

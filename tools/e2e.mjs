@@ -159,8 +159,8 @@ async function run () {
   check('CSP: everything is denied unless named', csp.includes("default-src 'none'"))
   check('CSP: no scripts by default', csp.includes("script-src 'none'"))
   check('CSP: no network egress by default', csp.includes("connect-src 'none'"))
-  check('CSP: sources are pinned to this torrent alone',
-    csp.includes(`img-src ${origin}/webtorrent/${infoHash}/`))
+  check('CSP: same-origin loads only, so nothing external can be reached',
+    csp.includes("img-src 'self' data: blob:") && !/https?:\/\/(?!localhost)/.test(csp))
   check('CSP: the gate may frame the site (WebTorrent would forbid it)',
     csp.includes(`frame-ancestors ${origin}`), csp.match(/frame-ancestors [^;]*/)?.[0])
   check('the entry page is served inline, not as a download',
@@ -174,8 +174,10 @@ async function run () {
   const refusals = console_.filter(line => line.includes('Content Security Policy'))
   check('an off-site image is refused, so plain markup cannot leak the reader',
     refusals.some(line => line.includes('example.invalid')), `${refusals.length} refusals`)
-  check('climbing out of the torrent to another one is refused',
-    refusals.some(line => line.includes('0000000000000000000000000000000000000000')))
+  // The static probe that points into another torrent must come back empty.
+  // Its refusal now comes from the worker rather than from a CSP path, and a
+  // scriptless page cannot fetch() to inspect the status — that is checked
+  // below, once scripts are on and connect-src permits a request at all.
   check('neither probe image loaded',
     await site.evaluate(() => [...document.images].slice(1).every(img => img.naturalWidth === 0)))
 
@@ -210,9 +212,22 @@ async function run () {
     sandboxAfter.trim() === 'allow-same-origin allow-scripts', sandboxAfter)
 
   const cspAfter = (await fetchHeaders(page, infoHash, entry))['content-security-policy']
-  check('CSP: egress stays inside the torrent even with scripts on',
-    cspAfter.includes(`connect-src ${origin}/webtorrent/${infoHash}/`),
-    cspAfter.match(/connect-src [^;]*/)?.[0])
+  check('CSP: egress stays on this origin even with scripts on',
+    cspAfter.includes("connect-src 'self'"), cspAfter.match(/connect-src [^;]*/)?.[0])
+
+  // Cross-torrent isolation, checked at its enforcement point. With scripts on
+  // the site may fetch its own origin, so this is the strongest case: the
+  // worker still has to refuse a read into a torrent that is not this one.
+  const scripted = await siteFrame(page)
+  const cross = await scripted.evaluate(async () => {
+    const other = '0000000000000000000000000000000000000000'
+    const own = await fetch('css/site.css').then(r => r.status, e => 'ERR ' + e.message)
+    const theirs = await fetch(`../../${other}/pixel.png`).then(r => r.status, e => 'ERR ' + e.message)
+    return { own, theirs }
+  })
+  check('a scripted site may read its own torrent', cross.own === 200, JSON.stringify(cross))
+  check('the worker refuses a scripted read into another torrent',
+    cross.theirs === 403, JSON.stringify(cross))
 
   // --- the address bar ------------------------------------------------------
   // Navigating by pasting a magnet must not reload the gate: the fragment is

@@ -9,7 +9,7 @@
 // The vendored bundle is an ES module, so it is imported like our own code
 // rather than dropped on `window` by a classic <script>.
 import WebTorrent from '../vendor/webtorrent.min.js'
-import { METADATA_TIMEOUT_MS } from './config.js'
+import { DEFAULT_TRACKERS, METADATA_TIMEOUT_MS } from './config.js'
 
 /** @type {import('webtorrent').Instance|null} */
 let client = null
@@ -86,11 +86,18 @@ export async function openTorrent (magnetURI, onJoin = () => {}) {
   return await withMetadata(torrent)
 }
 
-/** Seed files as a new torrent and wait until it is announceable. */
+/**
+ * Seed files as a new torrent and wait until it is announceable.
+ *
+ * `announceList` is passed explicitly. Without it WebTorrent uses its own
+ * built-in defaults, which still include a tracker that refuses connections —
+ * so removing it from DEFAULT_TRACKERS only cleaned up the magnet text while
+ * every publish went on announcing to a dead host.
+ */
 export function seedTorrent (files, opts) {
   return new Promise((resolve, reject) => {
     try {
-      getClient().seed(files, opts, resolve)
+      getClient().seed(files, { announceList: DEFAULT_TRACKERS.map(t => [t]), ...opts }, resolve)
     } catch (err) {
       reject(err)
     }
