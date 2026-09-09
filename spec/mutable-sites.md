@@ -179,6 +179,34 @@ standard resolution of Zooko's triangle — of *memorable*, *globally unique* an
 Petnames are also immune to homograph tricks — `hackerone` against `hackerοne`
 with a Greek omicron — because the reader typed them.
 
+Two different keys claiming the same name is **ordinary, not suspicious**.
+There are many people called Lara, and both of them are entitled to say so. The
+reader resolves it the way people always have, by qualifying: *Lara from work*
+and *Lara Croft*. So an implementation should offer the claimed name as a
+starting suggestion, let it be edited, and when it collides with a petname
+already in the book, ask for a distinguishing one rather than warning about an
+attack that probably is not happening.
+
+What helps at that moment is context, not alarm: where this key just came from,
+whether it published the site being read, when the introduction arrived. That
+is what answers *which* Lara.
+
+Impersonation cannot present itself as a petname, because petnames never travel
+— they exist only in one reader's book. An unknown key is always shown as
+unknown, whatever it claims to be called. The two states that carry weight are
+therefore narrow and worth stating exactly:
+
+- a key you have **not** trusted appears — shown as unknown, always, no matter
+  what name it claims;
+- a key you **have** trusted is superseded by a different key on a site you
+  associate with it — the loud case, and the reason keys are stored at all.
+
+A trusted key that changes its *claimed* name is unremarkable; people rename
+themselves. Your petname for them is unaffected, because it was never theirs to
+set.
+
+One key has one petname, and one petname belongs to one key.
+
 The states an implementation should distinguish:
 
 ```
@@ -366,12 +394,6 @@ made.
 series — a site and its changelog, say. Reserved and unused for now; adding it
 later changes the DHT target and the rendezvous construction, so it should be
 decided before anything ships.
-
-**Duplicate petnames.** Two people can send introductions claiming the same
-name, and a reader can be careless. Petnames must be unique within one reader's
-book, so an implementation has to refuse or disambiguate a collision — and the
-collision is itself worth showing, since it is what an impersonation attempt
-looks like from the inside.
 
 **The introduction link format.** `#author=<hex>&name=…` is readable and cannot
 be confused with a magnet or a bare infohash, which are the other things a
