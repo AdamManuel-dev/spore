@@ -6,7 +6,8 @@ host it.
 Spore is a single static page — the **gate**. Paste a magnet link and the site
 inside it renders, fetched from the swarm by peers rather than from a server.
 Drop a folder on the gate and it becomes a torrent that your tab seeds, with a
-link you can share. No account, no upload, no backend.
+link you can share. No account and no backend — your files go to readers, not
+to a host.
 
 The name: a spore is self-contained, spreads, survives dormant, and any one of
 them can regrow the whole organism — which is exactly what a content-addressed
@@ -115,8 +116,9 @@ document.
 ## Publishing
 
 Drop a folder with an `index.html` at the top and relative links inside. The
-files are hashed in your browser; nothing is uploaded. You get a magnet and a
-shareable link, and your tab becomes the site's first seed.
+files are hashed in your browser and never sent to a server — they travel
+directly to the readers who ask for them. You get a magnet and a shareable
+link, and your tab becomes the site's first seed.
 
 Every reader who opens the link seeds it too, for as long as their tab is open.
 

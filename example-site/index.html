@@ -58,8 +58,9 @@
   <li><strong>Opens a site from a magnet link.</strong> The site renders in your
       browser, fetched from other people's browsers over WebRTC.</li>
   <li><strong>Publishes a folder.</strong> Drop a folder with an
-      <code>index.html</code>; it is hashed locally, and you get a link. Nothing
-      is uploaded anywhere, because there is nowhere to upload it to.</li>
+      <code>index.html</code>; it is hashed in your browser and you get a link.
+      It is never sent to a server, because there is no server — it goes to
+      readers directly, and only to those who ask for it.</li>
 </ol>
 
 <p>The gate itself is a handful of static files with no backend, so it can be
