@@ -41,6 +41,25 @@ export function parseSiteRef (input) {
   throw new InvalidSiteRef('That is not a magnet link or an infohash.')
 }
 
+/**
+ * The HTTP sources a magnet offers, if any (`ws=`, a BitTorrent "web seed").
+ *
+ * Spore does not use them, and a reader staring at a site that will not load
+ * deserves to know that a fallback existed and was declined on purpose rather
+ * than assume the gate is broken. See `describe` in app.js for the reasoning.
+ *
+ * @returns {string[]} the hosts offered, deduplicated
+ */
+export function webSeedHosts (magnetURI) {
+  const hosts = new Set()
+  for (const [, value] of magnetURI.matchAll(/[?&]ws=([^&]+)/gi)) {
+    try {
+      hosts.add(new URL(decodeURIComponent(value)).host)
+    } catch { /* not a URL we can name; nothing useful to report */ }
+  }
+  return [...hosts]
+}
+
 /** Build a magnet URI for an infohash, with the default web trackers attached. */
 export function magnetFor (infoHash, name) {
   const params = DEFAULT_TRACKERS.map(tr => `tr=${encodeURIComponent(tr)}`)

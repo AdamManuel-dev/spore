@@ -9,7 +9,7 @@
 import { collectDiagnostics, resetBrowserState } from './diagnostics.js'
 import { openDatabase, usage } from './idb.js'
 import { KEEP_WARNING, forget, isKept, keep, keptSites, restoreAll, restoreOne } from './keep.js'
-import { InvalidSiteRef, magnetFor, parseSiteRef } from './magnet.js'
+import { InvalidSiteRef, magnetFor, parseSiteRef, webSeedHosts } from './magnet.js'
 import { scriptsAllowed, servePolicyQueries, setScriptsAllowed } from './policy.js'
 import { filesFromDrop, filesFromInput, publish } from './publish.js'
 import { entryURL, findEntry } from './site.js'
@@ -763,6 +763,15 @@ function fail (error) {
 /** Turn a failure into something worth reading. */
 function describe (error) {
   if (error instanceof SiteNotFound) {
+    // Many public magnets carry an HTTP fallback. Spore declines it, and a
+    // reader deserves to know that rather than conclude the gate is broken.
+    const hosts = webSeedHosts(currentRef())
+    const fallback = hosts.length === 0
+      ? ''
+      : ` This magnet also offers an HTTP copy at ${hosts.join(', ')}, which ` +
+        'Spore does not use: fetching it would tell that host your address and ' +
+        'what you are asking for, which is the thing Spore exists to avoid.'
+
     return {
       code: '404',
       title: 'This site could not be found',
@@ -771,7 +780,7 @@ function describe (error) {
         'it: the tab that published it has to stay open, and so does at least ' +
         'one tab that has it open. If everyone has closed theirs, the site is ' +
         'dormant until someone with a copy opens it again — the bytes are not ' +
-        'lost, there is just nobody holding them right now.',
+        'lost, there is just nobody holding them right now.' + fallback,
       retry: true
     }
   }
