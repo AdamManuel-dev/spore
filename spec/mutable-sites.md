@@ -126,6 +126,104 @@ key costs a row in storage the gate already has.
 A consequence: reverting is done by publishing the old content forward under a
 higher `seq`, never by going back.
 
+## Authors, names and trust
+
+A key is an author. Once a reader has seen one, the useful question is not "who
+is this" but "is this the same one as last time" — which needs no authority,
+no registry and no network.
+
+### Nothing is remembered unless the reader acts
+
+An author is recorded **only** when the reader explicitly trusts them. Merely
+opening a site records nothing.
+
+This keeps a property the gate otherwise has: reading leaves no trace on disk.
+An address book written on sight would be a durable log of everything you had
+ever read, which is exactly what Spore avoids elsewhere.
+
+A consequence, accepted deliberately: `seq` memory (the downgrade check, rule 4
+above) only exists for trusted authors. A reader with no relationship to an
+author gets no replay protection, which is proportionate — there is nothing
+established to protect.
+
+### The claimed name is a claim
+
+`spore.pub` MAY carry a second line:
+
+```
+9a3f…64 hex characters…
+name=Hacker One
+```
+
+Because it lives in the site's content, it is covered by the torrent hashes: no
+peer can alter it. **Tamper-proof is not the same as true.** Anyone can
+generate a key and claim any name; a signature proves the holder said it, never
+that it is so. Rendering such a name as the author's identity would rebuild the
+self-signed-certificate problem — authority in appearance, nothing behind it.
+
+Implementations therefore **must not** display a claimed name as the author's
+name. It is shown as a claim, in quotation, and never on its own.
+
+### Petnames
+
+The name shown with authority is the one the reader assigns. This is the
+standard resolution of Zooko's triangle — of *memorable*, *globally unique* and
+*securely yours*, one name gets two:
+
+| | memorable | globally unique | secure |
+|---|---|---|---|
+| the key | ✗ | ✓ | ✓ |
+| the claimed name | ✓ | ✗ | ✗ |
+| the petname you assign | ✓ | to you | ✓ |
+
+Petnames are also immune to homograph tricks — `hackerone` against `hackerοne`
+with a Greek omicron — because the reader typed them.
+
+The states an implementation should distinguish:
+
+```
+never seen     ◈ unknown author · claims to be "Hacker One" · zebra-monk-tidal-fern
+                 [ Trust this author as… ]
+
+trusted        ◈ Hacker One ✓  · trusted 12 March · 3 sites
+                 (the reader's own name, shown plainly)
+
+mismatch       ◈ ⚠ this is NOT the key you know as "Hacker One"
+                 same claimed name, different author
+```
+
+The last state is the entire point of storing keys, and the only one that
+catches a substitution.
+
+### Verifying a claim
+
+Spore has no messaging and should not grow any — that would be another service
+to run and to take down. Verification is out of band and always was: the
+author's existing HTTPS site linking the key, a signed post somewhere you
+already associate with them, a conference talk, a business card, a message on a
+platform where you already know them.
+
+A site MAY name a URL where the author says the key is also published. The gate
+**must not fetch it** — that would be exactly the egress the security model
+forbids. It may only display it, for the reader to check themselves.
+
+### Fingerprints and avatars
+
+Two derived, unstored representations of a key, both computed from
+`SHA-256(key)`:
+
+- **A word fingerprint** — four words from a wordlist fixed by this
+  specification, roughly 44 bits. Words are what make comparison possible
+  aloud, over a phone, or in a talk. Sixty-four hex characters are not.
+- **An avatar** — a symmetric cell grid with colours drawn from the same
+  digest. Symmetry aids memory; the point is that a change is *noticed*.
+
+Neither is a verification mechanism, and implementations should not imply that
+they are. SSH says the same of its randomart, for the same reason: an attacker
+can grind keypairs until the picture looks approximately right, and people
+compare pictures coarsely. The avatar answers "does this look like last time";
+the full key answers "is this the same key".
+
 ## Publishing an update
 
 1. Edit the folder. Keep `spore.pub` in it — same key.
@@ -166,7 +264,8 @@ examined idea in this document. See Open questions.
 - **It does not tie a key to a person.** A signature proves the same key
   published both versions, nothing more. `P` means "you" only because you
   announced it somewhere already trusted — a talk, an existing site, a business
-  card. Same as an SSH or PGP key.
+  card. Same as an SSH or PGP key. A name carried in `spore.pub` is a claim by
+  the key holder and evidence of nothing.
 - **There is no revocation.** A key is the identity; a compromised key cannot
   be retired by any mechanism here.
 - **Losing the key ends the site's history.** No recovery. If the key is
@@ -204,6 +303,22 @@ made.
 series — a site and its changelog, say. Reserved and unused for now; adding it
 later changes the DHT target and the rendezvous construction, so it should be
 decided before anything ships.
+
+**The wordlist.** Fingerprint words must be fixed by this specification or two
+implementations will disagree about the same key, which is worse than having no
+fingerprint. BIP-39's English list is 2048 words, widely available and already
+chosen for being hard to confuse when spoken — reusing it costs nothing and
+avoids inventing a list badly. Not decided.
+
+**How much avatar is enough.** A symmetric grid with a few colours is a small
+visual space, and grinding keypairs to land near a given picture is cheap.
+Since the avatar is explicitly not the verification mechanism this may be
+acceptable, but the size of the space should be chosen deliberately rather than
+by whatever looks nice.
+
+**Exporting trust.** A reader's petnames and trusted keys are the only thing
+here that cannot be regenerated. Losing a browser profile loses them. Whether
+they can be exported, and in what format, is unspecified.
 
 **Key rotation.** A record signed by the old key naming a new key is the
 obvious mechanism and has an obvious flaw: whoever stole the key can rotate
