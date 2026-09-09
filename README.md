@@ -31,6 +31,19 @@ Pages is the least-effort option:
 2. Settings → Pages → Source: *Deploy from a branch*, branch `main`, folder
    `/ (root)`.
 
+Or run it yourself, behind your own TLS:
+
+```sh
+cd deploy/gate
+docker compose up -d      # http://localhost:8080
+```
+
+Those are two of the three ways to host, and they do different jobs —
+[`deploy/`](deploy/) says which is which. In short: **`deploy/gate/` serves the
+page people browse with; `deploy/seeder/` keeps one published site alive.** A
+compose file at the repository root would have implied that starting "the
+project" meant one specific thing, and it does not.
+
 That is the whole deployment. There is no build step to configure, and nothing
 in the bundle assumes a particular hostname or path — verified running from a
 subpath, which is what a project page (`https://you.github.io/spore/`) gives
@@ -128,6 +141,7 @@ node tools/seed.mjs ./my-site
 ### With Docker
 
 ```sh
+cd deploy/seeder
 mkdir -p site data
 cp -r your-website/. site/
 docker compose up -d
@@ -243,6 +257,8 @@ js/
   idb.js            IndexedDB — the only thing that writes to disk
   magnet.js         parsing whatever the user pasted
   config.js         trackers and timeouts
+deploy/gate/        container that serves the gate (nginx)
+deploy/seeder/      container that seeds one site, permanently
 vendor/             WebTorrent, committed verbatim (see vendor/README.md)
 tools/serve.mjs     dev server
 tools/e2e.mjs       browser check of both MVP promises and the security model

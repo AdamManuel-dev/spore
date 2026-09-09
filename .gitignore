@@ -2,5 +2,5 @@ node_modules/
 *.log
 .DS_Store
 .dev-cert/
-site/
-data/
+deploy/seeder/site/
+deploy/seeder/data/

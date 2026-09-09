@@ -1,5 +1,9 @@
 # A seeder for one Spore site, so it stays reachable with nobody's tab open.
 #
+# This is not the gate. It hosts nothing over HTTP and serves no web page; it
+# joins a swarm and answers browsers over WebRTC. For the gate, see
+# deploy/gate/.
+#
 # Nothing in here builds the gate — the gate is static files and needs no
 # toolchain. This image exists only for the seeder, whose one hard requirement
 # is a WebRTC implementation: a browser peer speaks WebRTC and nothing else, so

@@ -1,7 +1,12 @@
-# Seed one site, permanently.
+# Seed one site, permanently — this does NOT host the gate.
 #
-#   mkdir -p site data && cp -r your-website/. site/
-#   docker compose up
+# If you are looking for "run Spore so people can browse", that is
+# deploy/gate/. This one keeps a single published site reachable when nobody
+# has a tab open.
+#
+#   cd deploy/seeder
+#   mkdir -p site data && cp -r /path/to/your-website/. site/
+#   docker compose up -d
 #
 # The magnet is printed once at startup. It is pinned in data/site.torrent, so
 # it stays the same across restarts and rebuilds — keep that file and the link
@@ -13,7 +18,11 @@
 
 services:
   seeder:
-    build: .
+    # Built from the repository root: the seeder needs js/config.js and
+    # tools/seed.mjs, which live there.
+    build:
+      context: ../..
+      dockerfile: deploy/seeder/Dockerfile
     restart: unless-stopped
     volumes:
       # Not :ro, and it is worth knowing why. Seeding a pinned torrent goes

@@ -1,0 +1,26 @@
+# Host the gate: the page people open to browse and publish.
+#
+#   cd deploy/gate
+#   docker compose up -d      # http://localhost:8080
+#
+# This serves the static bundle and nothing else. It stores no content, keeps
+# no logs of what anyone reads — it cannot, since the site being viewed lives
+# in the URL fragment, which browsers never send to a server — and it does not
+# seed. To keep a published site alive when nobody has a tab open, that is
+# deploy/seeder/.
+#
+# Going public: put this behind something that terminates TLS (Caddy, Traefik,
+# nginx). HTTPS is not optional in production — a service worker needs a secure
+# context and the gate serves every site through one, so over plain HTTP on a
+# LAN address it will not work at all. localhost is the one exception browsers
+# make, which is why the mapping below is usable as it stands.
+
+services:
+  gate:
+    build:
+      # The repository root, since the bundle is what gets copied in.
+      context: ../..
+      dockerfile: deploy/gate/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:80"
