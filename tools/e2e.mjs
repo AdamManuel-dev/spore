@@ -290,6 +290,7 @@ async function run () {
   await checkKeptSiteSurvivesReload(page)
   await checkTorrentWithoutIndex(page)
   await checkSigningCore(page)
+  await checkUpdateOverTheWire()
 }
 
 /**
@@ -538,6 +539,131 @@ async function checkMissingSiteAndHome (page) {
     await page.evaluate(() => location.hash))
   await page.evaluate(() => history.pushState(null, '', location.pathname))
   await page.evaluate(() => { location.hash = '' })
+}
+
+/**
+ * One peer tells another that a site has a newer version.
+ *
+ * The point of the whole slice, and it cannot be faked: two independent
+ * browser contexts, two WebTorrent clients, a real swarm, and a signed record
+ * crossing a real wire through the BEP 10 extension handshake.
+ *
+ * The publisher seeds v1 and holds a record naming v2. The reader opens v1,
+ * connects, and must end up with v2's infohash — having verified it against
+ * the key carried inside v1's own content.
+ */
+async function checkUpdateOverTheWire () {
+  const publisher = await browser.createBrowserContext().then(c => c.newPage())
+  const reader = await browser.createBrowserContext().then(c => c.newPage())
+
+  for (const page of [publisher, reader]) {
+    await page.goto(origin + '/', { waitUntil: 'load' })
+    await page.waitForFunction(
+      () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+  }
+
+  // The publisher makes an identity, publishes v1 carrying its spore.pub, then
+  // publishes v2 and signs a record naming it.
+  const published = await publisher.evaluate(async () => {
+    const { createIdentity, formatSporePub } = await import('/js/identity.js')
+    const { signUpdate } = await import('/js/record.js')
+    const { seedTorrent } = await import('/js/swarm.js')
+    const { watchForUpdates } = await import('/js/updates.js')
+
+    const me = await createIdentity()
+    const pub = formatSporePub(me.hex, 'Test Author')
+
+    const version = async (body, name) => {
+      const files = [
+        new File([body], 'index.html', { type: 'text/html' }),
+        new File([pub], 'spore.pub', { type: 'text/plain' })
+      ]
+      files[0].fullPath = `${name}/index.html`
+      files[1].fullPath = `${name}/spore.pub`
+      return await seedTorrent(files, { name })
+    }
+
+    const v1 = await version('<h1>version one</h1>', 'site-v1')
+    const v2 = await version('<h1>version two</h1>', 'site-v2')
+
+    const record = await signUpdate(me.privateKey, me.publicKey, v2.infoHash, 2)
+
+    // Offer it to anyone who joins v1's swarm — the seeder's whole job here.
+    watchForUpdates(v1, {
+      publicKey: () => me.publicKey,
+      offer: () => record,
+      onUpdate: () => {}
+    })
+
+    return { key: me.hex, v1: v1.infoHash, v2: v2.infoHash, magnet: v1.magnetURI }
+  })
+  check('the publisher seeded two versions and signed a successor',
+    /^[0-9a-f]{40}$/.test(published.v1) && published.v1 !== published.v2, published.v2)
+
+  // Joining v1's swarm with a watcher installed, expecting `keyHex` to be the
+  // author. Records land in `window.__seen`, refusals in `window.__rejected`.
+  //
+  // The watcher goes on through openTorrent's join hook, which runs the moment
+  // the torrent is added — before metadata, and so before any peer handshakes.
+  // Attaching after the await would be too late: the wire would already exist
+  // and would never have advertised sp_update, so the publisher, which decides
+  // what to send from the peer's handshake, would never send us one.
+  const joinAndWatch = async (page, magnet, keyHex) => page.evaluate(async (magnet, keyHex) => {
+    const { fromHex } = await import('/js/bencode.js')
+    const { openTorrent } = await import('/js/swarm.js')
+    const { watchForUpdates } = await import('/js/updates.js')
+
+    window.__seen = null
+    window.__rejected = []
+
+    let torrent
+    await openTorrent(magnet, joined => watchForUpdates(torrent = joined, {
+      // In the gate this comes from the site's own spore.pub; passed in here so
+      // the check does not also depend on reading a file out of the torrent.
+      publicKey: () => fromHex(keyHex),
+      offer: () => null,
+      currentInfoHash: () => torrent.infoHash,
+      onRejected: reason => window.__rejected.push(reason),
+      onUpdate: update => { window.__seen = update }
+    }))
+  }, magnet, keyHex)
+
+  // Polled from the outside in short calls: a single evaluate that waits half a
+  // minute outruns the browser's protocolTimeout and is killed mid-wait, which
+  // looks exactly like failure.
+  const settle = async (page, read, ms = 40_000) => {
+    let value = await page.evaluate(read)
+    for (let waited = 0; waited < ms; waited += 2000) {
+      if (Array.isArray(value) ? value.length : value) break
+      await wait(2000)
+      value = await page.evaluate(read)
+    }
+    return value
+  }
+
+  // The reader joins v1 knowing only its magnet, and must learn v2 from a peer.
+  await joinAndWatch(reader, published.magnet, published.key)
+  const learned = await settle(reader, () => window.__seen)
+  check('a reader on the old version learns the new one from a peer',
+    learned?.infoHash === published.v2 && learned?.seq === 2,
+    JSON.stringify(learned ?? await reader.evaluate(() => window.__rejected.slice(0, 3))))
+
+  // The same exchange for a peer expecting a different author. It needs its own
+  // browser context rather than a second watcher on the reader's torrent: the
+  // publisher offers its record once, when a peer's handshake tells it the peer
+  // speaks sp_update, so only a peer that joins fresh is ever sent one.
+  const stranger = await browser.createBrowserContext().then(c => c.newPage())
+  await stranger.goto(origin + '/', { waitUntil: 'load' })
+  const otherKey = await stranger.evaluate(async () => {
+    const { createIdentity } = await import('/js/identity.js')
+    return (await createIdentity()).hex
+  })
+  await joinAndWatch(stranger, published.magnet, otherKey)
+
+  const refused = await settle(stranger, () => window.__rejected, 30_000)
+  check('a record signed by anyone but the key the reader expects is refused',
+    refused.some(r => /different key/.test(r)) && !(await stranger.evaluate(() => window.__seen)),
+    JSON.stringify(refused.slice(0, 2)))
 }
 
 /**
