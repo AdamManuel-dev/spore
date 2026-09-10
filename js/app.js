@@ -42,6 +42,7 @@ const ui = {
   keptList: el('kept-list'),
   keptUsage: el('kept-usage'),
   share: el('share'),
+  shareSuccessor: el('share-successor'),
   shareLink: el('share-link'),
   copy: el('copy'),
   shareDismiss: el('share-dismiss'),
@@ -988,18 +989,22 @@ async function announceSuccessor (torrent) {
 const announcing = []
 
 function showSuccessorNote ({ seq, reaching }) {
-  ui.notice.textContent = reaching
+  // Beside the share link, not in the notice bar. Publishing navigates to the
+  // new site, and rendering a site clears the notice — so the one message that
+  // explains what just happened to the *old* site would vanish a second after
+  // appearing.
+  ui.shareSuccessor.textContent = reaching
     ? `Version ${seq} signed. Anyone who opens the previous version while this ` +
       'tab is open will be offered this one. Close the tab and nobody is told — ' +
       'a seeder holding the old version is what makes that durable.'
     : `Version ${seq} signed, but the previous version is not open in this tab, ` +
       'so there is no swarm to announce it to. Open the old magnet here, or ' +
       'keep it offline, and publish again to reach its readers.'
-  ui.notice.className = 'notice'
-  ui.notice.hidden = false
+  ui.shareSuccessor.hidden = false
 }
 
 function showShareLink (magnet) {
+  ui.shareSuccessor.hidden = true
   const link = new URL(location.href)
   link.hash = magnet
   ui.shareLink.value = link.href

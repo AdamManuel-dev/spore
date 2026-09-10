@@ -307,6 +307,7 @@ async function run () {
   await checkSigningCore(page)
   await checkUpdateOverTheWire()
   await checkUpdateOffer()
+  await checkPublishingASuccessor()
 }
 
 /**
@@ -763,6 +764,89 @@ async function checkUpdateOffer () {
   check('taking the offer navigates to the signed version',
     (await reader.evaluate(() => location.hash)).includes(published.v2),
     await reader.evaluate(() => location.hash))
+}
+
+/**
+ * The publisher's half, through the UI a publisher actually uses.
+ *
+ * Everything before this drove the modules directly and hand-signed the record.
+ * Here nobody signs anything on purpose: a person types a passphrase, drops a
+ * folder, drops a second folder, and a reader on the first one is offered the
+ * second. If the gate is not putting `spore.pub` in the folder, or is numbering
+ * versions wrong, or is announcing to the wrong swarm, this is what notices.
+ */
+async function checkPublishingASuccessor () {
+  const publisher = await browser.createBrowserContext().then(c => c.newPage())
+  publisher.on('dialog', d => d.accept('correct horse battery staple hunter2'))
+  await publisher.goto(origin + '/', { waitUntil: 'load' })
+  await publisher.waitForFunction(
+    () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+
+  await publisher.click('#signin-open')
+  await publisher.waitForFunction(
+    () => !document.getElementById('signed-in').hidden, { timeout: 30_000 })
+  const shownFingerprint = await publisher.$eval('#me-fingerprint', el => el.textContent)
+  check('signing in shows the key it derived, not a name',
+    /^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/.test(shownFingerprint), shownFingerprint)
+
+  // The real input, with a real change event: this is the path that adds
+  // spore.pub and signs successors, and calling publish() directly skips it.
+  const dropFolder = async body => publisher.evaluate(async body => {
+    const data = new DataTransfer()
+    data.items.add(new File([body], 'index.html', { type: 'text/html' }))
+    const input = document.getElementById('folder-input')
+    input.files = data.files
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  }, body)
+
+  const settled = async since => {
+    for (let waited = 0; waited < 60_000; waited += 1000) {
+      await wait(1000)
+      const hash = await publisher.evaluate(() => location.hash)
+      if (hash.length > 1 && hash !== since) return hash
+    }
+    return null
+  }
+
+  await dropFolder('<h1>first</h1>')
+  const first = await settled('')
+  check('publishing while signed in yields a magnet', Boolean(first), String(first))
+
+  const v1 = /btih:([0-9a-f]{40})/.exec(first ?? '')?.[1]
+  const contents = await publisher.evaluate(async hash => {
+    const { getClient } = await import('/js/swarm.js')
+    const torrent = await getClient().get(hash)
+    return torrent.files.map(f => f.path)
+  }, v1)
+  check('the published folder carries the signed-in key',
+    contents.some(path => /(^|\/)spore\.pub$/.test(path)), JSON.stringify(contents))
+
+  await dropFolder('<h1>second, and different</h1>')
+  const second = await settled(first)
+  const v2 = /btih:([0-9a-f]{40})/.exec(second ?? '')?.[1]
+  check('publishing again yields a different site', Boolean(v2) && v2 !== v1, `${v1} → ${v2}`)
+
+  const note = await publisher.$eval(
+    '#share-successor', el => el.hidden ? '' : el.textContent)
+  check('the publisher is told the successor was signed and where it reaches',
+    /Version 2 signed/.test(note), note.slice(0, 80))
+
+  // The proof: someone still on the first version, who was never told anything
+  // by us, hears about the second from the publisher's tab.
+  const reader = await browser.createBrowserContext().then(c => c.newPage())
+  await reader.goto(origin + '/', { waitUntil: 'load' })
+  await reader.waitForFunction(
+    () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+  await reader.evaluate(hash => { location.hash = hash }, first)
+
+  let offered = false
+  for (let waited = 0; waited < 60_000 && !offered; waited += 2000) {
+    await wait(2000)
+    offered = await reader.$eval('#update', el => !el.hidden)
+  }
+  const detail = offered ? await reader.$eval('#update-detail', el => el.textContent) : ''
+  check('a reader on the first version is offered the second',
+    offered && /Version 2/.test(detail), detail || 'no banner')
 }
 
 /**
