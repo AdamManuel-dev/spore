@@ -122,6 +122,50 @@ link, and your tab becomes the site's first seed.
 
 Every reader who opens the link seeds it too, for as long as their tab is open.
 
+## Updating a site
+
+A magnet is the hash of its content, so editing a site gives it a new address.
+That is not a limitation to route around — it is what makes a site verifiable
+without trusting anyone. What it costs is continuity: readers holding the old
+link have no way to learn the new one.
+
+Signing fixes the continuity without giving up the verification.
+
+**Sign in with a passphrase** before publishing. The passphrase *is* the key —
+it is derived, never stored, never sent, and there is nothing to back up and
+nobody who can reset it. Your folder then gets a `spore.pub` naming your public
+key, so the site says who it belongs to.
+
+Publish again later, from the same passphrase, and Spore signs a small record
+saying "version *n* of this key is at *this* infohash" and offers it to peers
+still on the old version. A reader there sees:
+
+> **"Lara from work" has published a newer version.**
+> Version 3, signed by `2317-e451-c8f8-2b8c` — the same key as the version you
+> are reading. **[Open it]** [Not now]
+
+They are offered it. They are never moved. A signature proves *who* wrote a
+version, not that the reader wants to be taken to it — and silently swapping
+the page would hand anyone who ever stole the key control over what everyone is
+currently reading.
+
+Three things worth being plain about:
+
+- **The name is a claim.** Anyone can put `name=Lara Croft` in their
+  `spore.pub`. The key cannot be faked; the name is decoration. That is why the
+  fingerprint is shown next to it.
+- **It travels between peers, not through the DHT.** BEP 46 resolves successors
+  over the DHT, which is UDP, which a browser cannot open at all. The record is
+  the identical BEP 44 item — a seeder with UDP can put the same bytes in the
+  DHT and an ordinary BEP 46 client resolves it — but in a browser it moves over
+  the wire between peers. So an update reaches someone only if a peer they
+  connect to holds it. **Keep the old version seeded.**
+- **Sequence numbers live in your browser.** Publish from a different machine
+  and numbering restarts, and readers correctly refuse the result as stale.
+
+The design, the threat model and what is deliberately not built are in
+[spec/mutable-sites.md](spec/mutable-sites.md).
+
 ## Seeding from a server
 
 A browser seeds only while its tab is open. To keep a site up regardless, run a
@@ -148,6 +192,7 @@ mkdir -p site data
 cp -r your-website/. site/
 docker compose up -d
 docker compose logs        # the magnet is printed once, at startup
+curl -s localhost:8081     # is it actually serving?
 ```
 
 `site/` is your website; `data/` holds the pinned `.torrent`. **Keep `data/`.**
@@ -168,6 +213,27 @@ quietly and it has no verified pieces to offer. It looks exactly like
 It prints the magnet and holds it. Verified end to end: the seeder reported
 `1 peer  ↑ 15 kB` while a browser gate rendered the site from it in about six
 seconds, with no other peer anywhere.
+
+### Is it alive?
+
+A seeder's characteristic failure is not crashing. It is staying up while
+serving nothing — announcing a torrent whose files no longer verify, accepting
+peer connections, and sending them no data. Every log line reads healthy. So
+`--status <port>` answers with what actually matters:
+
+```sh
+curl -s localhost:8081
+{ "infoHash": "…", "complete": true, "progress": 1, "peers": 2, "uploaded": 15360, … }
+```
+
+`complete: false` is the one to alert on: the pinned `.torrent` describes
+content the folder does not hold. That is also the Docker `HEALTHCHECK`, so
+`docker compose ps` reports `healthy` rather than merely `Up`, and the seeder
+now says so loudly at startup instead of leaving it to be discovered by asking
+why a site went dark.
+
+The port is published on `127.0.0.1` only. It exposes nothing the magnet does
+not already tell anyone, but there is no reason to put it on the internet.
 
 **To keep an existing link**, do not re-publish the folder — re-creating a
 torrent does not reliably reproduce the same infohash, and a different
@@ -195,9 +261,10 @@ something. Two limits worth understanding before you rely on it:
 
 - **Editing the site changes its address.** Content *is* the address here, so a
   new version is a new magnet, and the old link goes on serving the old bytes
-  until nobody holds them. Mutable addresses are a later phase. In the
-  meantime, a site you expect to edit is better announced with the gate URL you
-  control and a fresh magnet each time.
+  until nobody holds them. What carries readers across that gap is a signed
+  successor — see [Updating a site](#updating-a-site) — which reaches only the
+  people whose peers hold it. Keep the *old* version seeded too, or nobody
+  still on it ever hears.
 - **One seeder is one point of failure**, which is the thing Spore is supposed
   to avoid. The seeder makes a site *available*; readers keeping it open are
   what make it *resilient*. They are not the same property.
@@ -240,14 +307,22 @@ The security model is a set of claims about what a browser will and will not
 do, so it is checked in one rather than argued about:
 
 ```sh
-npm install puppeteer-core     # the only dependency, and only for this
-node tools/e2e.mjs             # --chrome /path/to/chrome if it is not found
+npm install                    # dev dependencies, needed only for this
+npm test                       # or: node tools/e2e.mjs --chrome /path/to/chrome
 ```
 
 It publishes `example-site/`, opens it the way a reader would, and asserts each
 guarantee: the site renders from the swarm with its stylesheet and images,
 scripts stay dead until opted in, an off-site image is refused, and a site
-cannot climb out of its own torrent into another one.
+cannot climb out of its own torrent into another one. Signing and updates are
+driven through the gate's own UI across three browser contexts — one publisher,
+one reader who is offered the successor, one who expects a different author and
+must refuse it.
+
+It runs a **local tracker** for the duration. The two public `wss://` trackers
+are this project's most fragile dependency, and a suite that fails when one of
+them is having a bad afternoon teaches nobody anything. What is exercised —
+real WebRTC between real browser peers — is the same either way.
 
 ## Layout
 
@@ -266,11 +341,18 @@ js/
   idb.js            IndexedDB — the only thing that writes to disk
   magnet.js         parsing whatever the user pasted
   config.js         trackers and timeouts
+  identity.js       ed25519 keys from a passphrase, spore.pub, fingerprints
+  record.js         BEP 44 signed records: sign, encode, verify
+  bencode.js        canonical bencode, because a signature covers exact bytes
+  updates.js        sp_update: moving signed successors between peers
+  authors.js        keys this browser has met, and their highest version
+  me.js             the identity signed in to this tab (memory only)
 deploy/gate/        container that serves the gate (nginx)
 deploy/seeder/      container that seeds one site, permanently
 vendor/             WebTorrent, committed verbatim (see vendor/README.md)
 tools/serve.mjs     dev server
 tools/e2e.mjs       browser check of both MVP promises and the security model
+tools/seed.mjs      seed a site from a server, with a --status health endpoint
 spec/               protocol drafts, for anyone writing a second gate
 example-site/       the Spore whitepaper, published through Spore
 ```
@@ -278,6 +360,10 @@ example-site/       the Spore whitepaper, published through Spore
 There is no build step and no dependency to install. Clone it, serve the
 directory, and it is the same gate — which is the point: any mirror runs it
 identically.
+
+`package.json` lists dev dependencies, and they are only for `tools/` and
+`deploy/`: the browser check, the local tracker it runs, and the server seeder.
+None of them is needed to host or mirror the gate.
 
 ## License
 

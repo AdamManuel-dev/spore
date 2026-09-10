@@ -372,6 +372,27 @@ can grind keypairs until the picture looks approximately right, and people
 compare pictures coarsely. The avatar answers "does this look like last time";
 the full key answers "is this the same key".
 
+## Offer, never follow
+
+**Decided.** A verified successor is shown to the reader and applied only when
+they act on it.
+
+The argument for switching automatically is that most readers will otherwise
+stay on stale content out of inertia, and that is true. It loses anyway. A
+signature establishes *who* wrote a version, not that the reader consents to be
+moved to it — and the key that signs the successor is the same key an attacker
+would hold after stealing it, so silent replacement turns one compromise into
+retroactive control over what everyone is currently reading. A specific version
+may also have been linked deliberately, by someone quoting it.
+
+So verification is automatic and the navigation is manual. It is the same shape
+as the per-site script permission: the gate does the work of deciding whether
+something *could* be trusted, and leaves whether to trust it to the person.
+
+Declining is remembered only in the sense that nothing changes: the reader stays
+where they are, the record is still held, and it is offered again on the next
+visit. A declined update is not a rejected one.
+
 ## Publishing an update
 
 1. Edit the folder. Keep `spore.pub` in it — same key.
@@ -421,6 +442,31 @@ examined idea in this document. See Open questions.
 - **It does not resurrect abandoned sites.** Nobody seeding, nothing to find.
 - **It is not anonymity.** Peers see each other's addresses, as always.
 
+## What is implemented
+
+Everything above from `spore.pub` through verification, plus the reader and
+publisher halves in the gate: `js/bencode.js`, `js/record.js`, `js/identity.js`,
+`js/updates.js`, `js/authors.js`, `js/me.js`. Covered end to end by
+`tools/e2e.mjs`, including the whole loop driven through the gate's own UI
+across three browser contexts.
+
+Two implementation notes that the design above does not imply and that cost real
+time to find:
+
+The extension must be attached to a torrent **before** it has peers, not once it
+is ready. BEP 10 advertises capabilities exactly once, in the extended
+handshake. A watcher attached after metadata arrives is invisible to every peer
+already in the swarm — which is precisely the set most likely to be holding an
+update — and since the exchange is symmetric, those peers never send anything
+either. Attaching that early means the site's own key is not yet readable, so
+the key is resolved through a promise and any record arriving first waits for
+it.
+
+Not implemented: the rendezvous swarm, salt, introductions, petnames, flagging,
+and key rotation. Sequence numbers are per-key and per-browser — a publisher who
+loses their `localStorage` starts numbering again and readers correctly refuse
+the result as stale.
+
 ## Interoperability
 
 A Spore site remains an ordinary torrent. Clients that do not know `sp_update`
@@ -440,12 +486,6 @@ noise — signature checks make it correct but not quiet? Joining the rendezvous
 tells the tracker you are interested in that identity, which is a different
 disclosure from asking for an infohash. And is the deterministic construction
 stable enough to specify exactly, across implementations?
-
-**Auto-follow or offer.** When a newer version is found, does the gate switch,
-or say so and wait? Switching silently changes what someone is reading, and a
-specific version may have been linked deliberately. Offering means most readers
-stay on stale content out of inertia. This is a product decision and it is not
-made.
 
 **Salt.** BEP 44 allows one, letting a single key run several independent
 series — a site and its changelog, say. Reserved and unused for now; adding it
