@@ -219,6 +219,66 @@ button:hover, .button:hover { border-color: var(--accent); }
   font: 12px/1.4 var(--mono);
 }
 
+/* --- identity ----------------------------------------------------------- */
+
+.signin { margin-top: 14px; }
+
+.signed-in {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.signed-in p { margin: 0; }
+
+.fingerprint {
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+}
+
+/* --- update offer ------------------------------------------------------- */
+
+.update {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--accent);
+}
+
+.update-who {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.update-avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.update-avatar svg { display: block; width: 100%; height: 100%; }
+
+.update-text { margin: 0; min-width: 0; }
+.update-text span { display: block; }
+
+.update-row {
+  display: flex;
+  gap: 8px;
+}
+
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 code { font-family: var(--mono); }

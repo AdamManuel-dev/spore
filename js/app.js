@@ -12,8 +12,13 @@ import { KEEP_WARNING, forget, isKept, keep, keptSites, restoreAll, restoreOne }
 import { InvalidSiteRef, magnetFor, parseSiteRef, webSeedHosts } from './magnet.js'
 import { scriptsAllowed, servePolicyQueries, setScriptsAllowed } from './policy.js'
 import { filesFromDrop, filesFromInput, publish } from './publish.js'
-import { entryURL, findEntry } from './site.js'
+import { lastPublished, me, recordPublished, signIn, signOut } from './me.js'
+import { signUpdate } from './record.js'
+import { avatar, fingerprint, formatSporePub } from './identity.js'
+import { entryURL, findEntry, readSporePub } from './site.js'
 import { SiteNotFound, getClient, openTorrent, startClient, startWorker } from './swarm.js'
+import { watchForUpdates } from './updates.js'
+import { author, knownSeq, rememberAuthor, rememberVersion } from './authors.js'
 import { Viewer } from './viewer.js'
 
 const el = id => document.getElementById(id)
@@ -41,6 +46,12 @@ const ui = {
   copy: el('copy'),
   shareDismiss: el('share-dismiss'),
   home: el('home'),
+  update: el('update'),
+  updateAvatar: el('update-avatar'),
+  updateTitle: el('update-title'),
+  updateDetail: el('update-detail'),
+  updateOpen: el('update-open'),
+  updateDismiss: el('update-dismiss'),
   error: el('error'),
   errorCode: el('error-code'),
   errorTitle: el('error-title'),
@@ -59,6 +70,14 @@ const ui = {
   diagnosticsReset: el('diagnostics-reset'),
   diagnosticsClose: el('diagnostics-close'),
   dropzone: el('dropzone'),
+  signin: el('signin'),
+  signinOpen: el('signin-open'),
+  signedIn: el('signed-in'),
+  meAvatar: el('me-avatar'),
+  meName: el('me-name'),
+  meFingerprint: el('me-fingerprint'),
+  meHistory: el('me-history'),
+  signout: el('signout'),
   folder: el('folder-input')
 }
 
@@ -70,6 +89,12 @@ let ready = false
 
 /** Infohashes kept on this device, refreshed whenever the list changes. */
 let keptHashes = new Set()
+
+/**
+ * The author of the site on screen and the successor it has offered, if any.
+ * @type {{key: object, stop: () => void, offered: object|null}|null}
+ */
+let authorship = null
 
 boot()
 
@@ -92,6 +117,10 @@ async function boot () {
   ui.keep.addEventListener('change', onKeepToggle)
   ui.copy.addEventListener('click', onCopy)
   ui.shareDismiss.addEventListener('click', () => { ui.share.hidden = true })
+  ui.signinOpen.addEventListener('click', onSignIn)
+  ui.signout.addEventListener('click', onSignOut)
+  ui.updateOpen.addEventListener('click', onUpdateOpen)
+  ui.updateDismiss.addEventListener('click', onUpdateDismiss)
   ui.saveTorrent.addEventListener('click', onSaveTorrent)
   ui.diagnose.addEventListener('click', showDiagnostics)
   ui.diagnosticsClose.addEventListener('click', () => ui.diagnostics.close())
@@ -189,6 +218,7 @@ async function open (ref) {
   }
 
   ui.address.value = ref
+  stopWatchingAuthor()
   busy('Looking for peers…')
 
   try {
@@ -198,7 +228,10 @@ async function open (ref) {
     // restore and often win, leaving the stored copy untouched.
     if (parsed.infoHash) await restoreOne(getClient(), parsed.infoHash)
 
-    const torrent = await openTorrent(parsed.magnetURI, watchJoining)
+    const torrent = await openTorrent(parsed.magnetURI, joined => {
+      watchJoining(joined)
+      watchAuthor(joined)
+    })
     stopJoining()
 
     const entry = findEntry(torrent)
@@ -218,7 +251,7 @@ async function open (ref) {
     // Refusing it outright made a whole category of torrent — an archive, an
     // album, a dataset — a dead end, when its contents are perfectly readable.
     if (entry) await render(torrent, entry)
-    else showListing(torrent)
+    else { showListing(torrent); nameAuthor(torrent, null) }
   } catch (err) {
     stopJoining()
     fail(err)
@@ -285,10 +318,218 @@ async function render (torrent, entry) {
   ui.status.textContent = torrent.name ?? torrent.infoHash
 
   watchStats(torrent)
+  nameAuthor(torrent, entry)
 
   // Awaited last, deliberately: this only reports a frame that never navigated
   // and must not hold up one that does.
   if (!(await shown)) warnViewerStuck()
+}
+
+/* -------------------------------------------------------------------------- */
+/* Signing in                                                                 */
+/* -------------------------------------------------------------------------- */
+
+const SIGNIN_PROMPT = `Passphrase for your publishing key.
+
+This never leaves the browser and is never stored. The key is derived from the
+phrase itself, so the phrase IS the key: anyone who learns it can publish as
+you, and nobody — including you — can recover it or reset it if it is lost.
+
+Use a long phrase you do not use anywhere else.`
+
+/**
+ * Signing in is deriving a key, not authenticating against anything.
+ *
+ * There is no server to be wrong at, so every passphrase is "correct" and a
+ * typo silently yields a different identity. The fingerprint shown afterwards
+ * is the only check that exists, and it is the same check a reader uses on the
+ * other end — which is the point of showing it in both places.
+ */
+async function onSignIn () {
+  const passphrase = prompt(SIGNIN_PROMPT)
+  if (!passphrase) return
+
+  busy('Deriving your key…')
+  try {
+    const { identity, known, lastSeq } = await signIn(passphrase)
+    await showSignedIn(identity, { known, lastSeq })
+
+    if (!known) {
+      ui.notice.textContent =
+        `This browser has not published under ${await fingerprint(identity.publicKey)} before. ` +
+        'If you expected an existing key, check the passphrase — a typo produces ' +
+        'a different, equally valid identity rather than an error.'
+      ui.notice.className = 'notice'
+      ui.notice.hidden = false
+    }
+  } catch (err) {
+    fail(err)
+    return
+  }
+  ui.status.textContent = current ? ui.status.textContent : 'Nothing open'
+  ui.progress.textContent = ''
+}
+
+function onSignOut () {
+  signOut()
+  ui.signedIn.hidden = true
+  ui.signin.hidden = false
+  ui.notice.hidden = true
+}
+
+async function showSignedIn (identity, { known, lastSeq }) {
+  ui.meAvatar.replaceChildren(await avatarNode(identity.publicKey))
+  ui.meName.textContent = 'Signing as'
+  ui.meFingerprint.textContent = await fingerprint(identity.publicKey)
+  ui.meHistory.textContent = known
+    ? `Last published version ${lastSeq} from this browser. `
+    : 'Nothing published under this key from this browser yet. '
+  ui.signedIn.hidden = false
+  ui.signin.hidden = true
+}
+
+/* -------------------------------------------------------------------------- */
+/* Authorship and updates                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Listen for a signed successor to the site on screen.
+ *
+ * A site is updatable only if it says so itself, by shipping a `spore.pub`
+ * beside its index. The key in that file is the only key whose records this
+ * site will accept — which is what makes an update an update rather than a
+ * redirect: the new version is published by whoever published the old one, and
+ * nothing else can take its place.
+ *
+ * Peers are the only delivery route available. BEP 46 resolves successors
+ * through the DHT, which speaks UDP, which a browser cannot open at all — so
+ * the record travels over the wire between peers instead. Same record, same
+ * signature, different envelope. See spec/mutable-sites.md.
+ */
+function watchAuthor (torrent) {
+  stopWatchingAuthor()
+
+  // The key is not known yet and cannot be: reading `spore.pub` needs metadata,
+  // and by the time metadata arrives every peer already in the swarm has
+  // handshaked. BEP 10 advertises capabilities once, in that handshake, so a
+  // watcher attached any later is invisible to exactly the peers most likely to
+  // be holding an update. Attach now; answer the question when it can be
+  // answered.
+  let announceKey
+  const key = new Promise(resolve => { announceKey = resolve })
+
+  const stop = watchForUpdates(torrent, {
+    publicKey: () => key.then(k => k?.publicKey ?? null),
+
+    // A reader forwards what it was given. Passing on a record that verified
+    // here costs nothing and is how a swarm of readers keeps an update
+    // circulating after the publisher's own seeder goes away.
+    offer: () => authorship?.offered ?? null,
+
+    knownSeq: () => authorship?.key ? knownSeq(authorship.key.hex) : undefined,
+    currentInfoHash: () => torrent.infoHash,
+    onRejected: reason => console.debug('Spore: refused an update —', reason),
+    onUpdate: update => { if (authorship?.key) offerUpdate(authorship.key, update) }
+  })
+
+  authorship = { key: null, stop, offered: null, announceKey }
+}
+
+/**
+ * Now that the files are readable, say who — if anyone — this site trusts.
+ *
+ * Resolving with null is a real answer, not a failure: it releases any record
+ * already waiting to be checked, which is then refused because a site that
+ * declares no key can have no successor.
+ */
+async function nameAuthor (torrent, entry) {
+  if (!authorship || current?.torrent !== torrent) return
+
+  const key = entry ? await readSporePub(torrent, entry) : null
+  if (!authorship || current?.torrent !== torrent) return
+
+  authorship.key = key
+  authorship.announceKey(key)
+  if (!key) return
+
+  // Meeting an author is worth remembering even when no update ever arrives:
+  // it is what makes the next meeting recognisable as the same person.
+  rememberAuthor(key.hex, { claimed: key.claimedName, infoHash: torrent.infoHash })
+  ui.status.textContent = `${torrent.name ?? torrent.infoHash} · ${key.claimedName ?? 'signed'}`
+}
+
+function stopWatchingAuthor () {
+  authorship?.stop()
+  authorship?.announceKey?.(null) // release anything waiting, so it is refused
+  authorship = null
+  ui.update.hidden = true
+}
+
+/**
+ * Offer the successor. Never take it.
+ *
+ * The signature proves who wrote the new version, not that the reader wants to
+ * be moved to it. Following it silently would mean a page could be swapped
+ * under someone mid-read by anyone who once held the key — including a key that
+ * has since been stolen. So the record is verified automatically and acted on
+ * manually, which is the same shape as the scripts toggle.
+ */
+async function offerUpdate (key, update) {
+  // The first record to arrive wins until it is acted on; a later, higher one
+  // replaces it, because there is no point offering a version that is already
+  // stale by the time the reader clicks.
+  if (authorship?.offered && authorship.offered.seq >= update.seq) return
+  if (!authorship) return
+
+  authorship.offered = update
+
+  const known = author(key.hex)
+  const claimed = key.claimedName ? `“${key.claimedName}”` : 'the author'
+  const returning = known?.seq !== undefined
+
+  ui.updateAvatar.replaceChildren(await avatarNode(key.publicKey))
+  ui.updateTitle.textContent = `${claimed} has published a newer version.`
+  ui.updateDetail.textContent =
+    `Version ${update.seq}, signed by ${await fingerprint(key.publicKey)}` +
+    (returning
+      ? ' — the same key as the version you are reading.'
+      : ' — the key this site declares. A name is a claim; the key is not.')
+  ui.update.hidden = false
+}
+
+/**
+ * The avatar is built from the key, so two keys claiming one name never look
+ * alike. Parsed rather than assigned as markup: it is derived from bytes a
+ * stranger chose, and this element sits in the gate's own chrome.
+ */
+async function avatarNode (publicKey) {
+  const doc = new DOMParser().parseFromString(await avatar(publicKey), 'image/svg+xml')
+  return document.importNode(doc.documentElement, true)
+}
+
+/** Taking the offer is ordinary navigation, so the address bar and back button work. */
+function onUpdateOpen () {
+  const update = authorship?.offered
+  if (!update) return
+
+  // Only now, when the reader has said yes, does this become the version this
+  // browser knows about — so declining leaves an older record still offerable.
+  rememberVersion(authorship.key.hex, {
+    seq: update.seq,
+    infoHash: update.infoHash,
+    claimed: authorship.key.claimedName
+  })
+
+  ui.update.hidden = true
+
+  // No display name. The record names an infohash and nothing else — the new
+  // version's own name is inside metadata we have not fetched yet, and putting
+  // the author's name there instead would label the site with the wrong thing.
+  navigate(magnetFor(update.infoHash))
+}
+
+function onUpdateDismiss () {
+  ui.update.hidden = true
 }
 
 /**
@@ -655,13 +896,107 @@ async function seed (files, name) {
   }
   busy(`Hashing ${files.length} file${files.length === 1 ? '' : 's'}…`)
   try {
-    const torrent = await publish(files, name)
+    const signed = withSporePub(files)
+    const torrent = await publish(signed, name)
     const magnet = magnetFor(torrent.infoHash, torrent.name)
     showShareLink(magnet)
+
+    // Announced before navigating: navigating replaces the site on screen, and
+    // this has to happen whether or not the reader stays to watch it.
+    const successor = await announceSuccessor(torrent)
+
     navigate(magnet)
+    if (successor) showSuccessorNote(successor)
   } catch (err) {
     fail(err)
   }
+}
+
+/**
+ * Put the signed-in key in the folder, so the site names its own author.
+ *
+ * A folder that already carries a `spore.pub` is left exactly as it is. The
+ * publisher may be re-publishing someone else's site, or deliberately shipping
+ * a key other than the one in this tab, and silently overwriting it would
+ * change who the site says it belongs to without saying so.
+ */
+function withSporePub (files) {
+  const identity = me()
+  if (!identity) return files
+
+  const pathOf = file => file.fullPath || file.name
+  if (files.some(file => /(^|\/)spore\.pub$/i.test(pathOf(file)))) return files
+
+  // Beside the index, which is what readSporePub looks for: a key at the root
+  // of a torrent does not get to speak for a site in a subdirectory.
+  const index = files.find(file => /(^|\/)index\.html?$/i.test(pathOf(file)))
+  const path = pathOf(index ?? files[0])
+  const root = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : ''
+
+  const contents = formatSporePub(identity.hex, null)
+  const file = new File([contents], 'spore.pub', { type: 'text/plain' })
+  file.fullPath = `${root}spore.pub`
+  return [...files, file]
+}
+
+/**
+ * Sign a successor to whatever was last published under this key, and start
+ * offering it to the old version's swarm.
+ *
+ * This is the only way a reader ever hears about a new version, and it is worth
+ * being plain about its limit: the offer travels from peers who hold it, so it
+ * reaches people only while this tab, or some other holder, is in the old
+ * swarm. Publishing an update and closing the tab tells nobody. A server-side
+ * seeder holding the old version is what makes it durable, and putting the same
+ * record in the DHT — which needs UDP, which a browser has none of — is what
+ * makes it reach clients that never heard of Spore.
+ *
+ * @returns {Promise<{seq: number, reaching: boolean}|null>}
+ */
+async function announceSuccessor (torrent) {
+  const identity = me()
+  if (!identity) return null
+
+  const previous = lastPublished(identity.hex)
+  const seq = previous ? previous.seq + 1 : 1
+
+  recordPublished(identity.hex, { seq, infoHash: torrent.infoHash, name: torrent.name })
+
+  // A first version has no predecessor to announce to. It is still recorded,
+  // because the version after it needs a number to climb from.
+  if (!previous || previous.infoHash === torrent.infoHash) return null
+
+  const record = await signUpdate(
+    identity.privateKey, identity.publicKey, torrent.infoHash, seq)
+
+  const old = getClient().torrents.find(t => t.infoHash === previous.infoHash)
+  if (old) {
+    // Kept alive for the life of the tab. Every peer that joins the old swarm
+    // from now on is told, once, at its handshake.
+    announcing.push(watchForUpdates(old, {
+      publicKey: () => identity.publicKey,
+      offer: () => record,
+      currentInfoHash: () => old.infoHash,
+      onUpdate: () => {}
+    }))
+  }
+
+  return { seq, reaching: Boolean(old) }
+}
+
+/** Watchers offering successors, held so they are not collected. @type {Array<() => void>} */
+const announcing = []
+
+function showSuccessorNote ({ seq, reaching }) {
+  ui.notice.textContent = reaching
+    ? `Version ${seq} signed. Anyone who opens the previous version while this ` +
+      'tab is open will be offered this one. Close the tab and nobody is told — ' +
+      'a seeder holding the old version is what makes that durable.'
+    : `Version ${seq} signed, but the previous version is not open in this tab, ` +
+      'so there is no swarm to announce it to. Open the old magnet here, or ' +
+      'keep it offline, and publish again to reach its readers.'
+  ui.notice.className = 'notice'
+  ui.notice.hidden = false
 }
 
 function showShareLink (magnet) {
@@ -689,6 +1024,7 @@ async function onCopy () {
 function showWelcome () {
   current = null
   stopStats()
+  stopWatchingAuthor()
   ui.viewer.clear()
   ui.welcome.hidden = false
   ui.notice.hidden = true

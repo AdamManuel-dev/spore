@@ -25,6 +25,15 @@ import { fileURLToPath } from 'node:url'
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const args = process.argv.slice(2)
 const TLS = args.includes('--tls')
+
+// Test hook. The end-to-end suite runs a tracker of its own so that peer
+// discovery is deterministic and local, rather than depending on two public
+// trackers that are the project's most fragile external dependency. Handing it
+// in here means the doctoring lives in the harness: js/config.js on disk stays
+// the real thing, and nothing test-shaped ships in the gate.
+const TRACKERS = args.includes('--trackers')
+  ? args[args.indexOf('--trackers') + 1].split(',').filter(Boolean)
+  : null
 const PORT = Number(args.find(a => /^\d+$/.test(a)) ?? 8080)
 
 const TYPES = {
@@ -51,12 +60,22 @@ const handler = async (req, res) => {
     return res.end('Not found')
   }
 
-  res.writeHead(200, {
+  const headers = {
     'Content-Type': TYPES[extname(target)] ?? 'application/octet-stream',
     // Always serve fresh bytes: a cached sw.js is the classic way to spend an
     // afternoon debugging code that is no longer running.
     'Cache-Control': 'no-store'
-  })
+  }
+
+  if (TRACKERS && target.endsWith(join('js', 'config.js'))) {
+    const body = readFileSync(target, 'utf8').replace(
+      /export const DEFAULT_TRACKERS = \[[^\]]*\]/,
+      `export const DEFAULT_TRACKERS = ${JSON.stringify(TRACKERS)}`)
+    res.writeHead(200, headers)
+    return res.end(body)
+  }
+
+  res.writeHead(200, headers)
   createReadStream(target).pipe(res)
 }
 

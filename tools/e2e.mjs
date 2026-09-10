@@ -49,7 +49,21 @@ const check = (name, pass, detail = '') => {
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const port = await freePort()
-const server = spawn(process.execPath, [fileURLToPath(new URL('serve.mjs', import.meta.url)), String(port)], { stdio: 'ignore' })
+
+// A tracker of our own, for the same reason the gate ships its own service
+// worker: the two public wss trackers are the most fragile thing this project
+// depends on, and a suite that fails when one of them is having a bad afternoon
+// teaches nobody anything. Peer discovery here is local, instant and
+// deterministic; what it exercises — WebRTC between browser peers — is the real
+// thing either way.
+const trackerPort = await freePort()
+const tracker = await startTracker(trackerPort)
+const trackerURL = `ws://localhost:${trackerPort}`
+
+const server = spawn(process.execPath, [
+  fileURLToPath(new URL('serve.mjs', import.meta.url)), String(port),
+  ...(tracker ? ['--trackers', trackerURL] : [])
+], { stdio: 'ignore' })
 const origin = `http://localhost:${port}`
 
 const browser = await puppeteer.launch({
@@ -67,6 +81,7 @@ try {
 } finally {
   await browser.close()
   server.kill()
+  tracker?.close?.()
 }
 
 const failed = results.filter(r => !r.pass)
@@ -291,6 +306,7 @@ async function run () {
   await checkTorrentWithoutIndex(page)
   await checkSigningCore(page)
   await checkUpdateOverTheWire()
+  await checkUpdateOffer()
 }
 
 /**
@@ -617,7 +633,10 @@ async function checkUpdateOverTheWire () {
     window.__rejected = []
 
     let torrent
-    await openTorrent(magnet, joined => watchForUpdates(torrent = joined, {
+    // Started, never awaited. Joining a swarm takes as long as it takes, and an
+    // evaluate that outlives the browser's protocolTimeout is killed mid-wait —
+    // which the suite then reports as a failure of whatever it was testing.
+    window.__joined = openTorrent(magnet, joined => watchForUpdates(torrent = joined, {
       // In the gate this comes from the site's own spore.pub; passed in here so
       // the check does not also depend on reading a file out of the torrent.
       publicKey: () => fromHex(keyHex),
@@ -654,6 +673,12 @@ async function checkUpdateOverTheWire () {
   // speaks sp_update, so only a peer that joins fresh is ever sent one.
   const stranger = await browser.createBrowserContext().then(c => c.newPage())
   await stranger.goto(origin + '/', { waitUntil: 'load' })
+  // Waited for, like the other two. `load` only means the HTML arrived; the
+  // swarm client is started during boot, and joining before that produces a
+  // page that quietly never joins anything.
+  await stranger.waitForFunction(
+    () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+
   const otherKey = await stranger.evaluate(async () => {
     const { createIdentity } = await import('/js/identity.js')
     return (await createIdentity()).hex
@@ -664,6 +689,80 @@ async function checkUpdateOverTheWire () {
   check('a record signed by anyone but the key the reader expects is refused',
     refused.some(r => /different key/.test(r)) && !(await stranger.evaluate(() => window.__seen)),
     JSON.stringify(refused.slice(0, 2)))
+}
+
+/**
+ * The whole loop, through the gate's own UI.
+ *
+ * The publisher ships a `spore.pub` beside its index, so the site names its own
+ * author; the reader opens it the way a person would, by putting the magnet in
+ * the fragment. Nothing about the update is typed in: the reader learns the key
+ * by reading it out of the torrent and the successor by hearing it from a peer.
+ *
+ * The banner is the point. An update that applied itself would be a page
+ * swapped under someone mid-read on the authority of a key that might since
+ * have been stolen, so it is offered and the click is the reader's.
+ */
+async function checkUpdateOffer () {
+  const publisher = await browser.createBrowserContext().then(c => c.newPage())
+  const reader = await browser.createBrowserContext().then(c => c.newPage())
+
+  for (const page of [publisher, reader]) {
+    await page.goto(origin + '/', { waitUntil: 'load' })
+    await page.waitForFunction(
+      () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+  }
+
+  const published = await publisher.evaluate(async () => {
+    const { createIdentity, formatSporePub } = await import('/js/identity.js')
+    const { signUpdate } = await import('/js/record.js')
+    const { seedTorrent } = await import('/js/swarm.js')
+    const { watchForUpdates } = await import('/js/updates.js')
+
+    const me = await createIdentity()
+    const pub = formatSporePub(me.hex, 'Lara from work')
+
+    const version = async (body, name) => {
+      const files = [
+        new File([body], 'index.html', { type: 'text/html' }),
+        new File([pub], 'spore.pub', { type: 'text/plain' })
+      ]
+      files[0].fullPath = `${name}/index.html`
+      files[1].fullPath = `${name}/spore.pub`
+      return await seedTorrent(files, { name })
+    }
+
+    const v1 = await version('<h1>version one</h1>', 'offered-v1')
+    const v2 = await version('<h1>version two</h1>', 'offered-v2')
+    const record = await signUpdate(me.privateKey, me.publicKey, v2.infoHash, 7)
+
+    watchForUpdates(v1, { publicKey: () => me.publicKey, offer: () => record, onUpdate: () => {} })
+    return { v1: v1.infoHash, v2: v2.infoHash, magnet: v1.magnetURI }
+  })
+
+  // Opened the way a reader opens anything: the magnet goes in the fragment.
+  await reader.evaluate(magnet => { location.hash = magnet }, published.magnet)
+
+  let shown = false
+  for (let waited = 0; waited < 60_000 && !shown; waited += 2000) {
+    await wait(2000)
+    shown = await reader.$eval('#update', el => !el.hidden)
+  }
+  check('the gate offers a signed successor rather than following it',
+    shown && (await reader.evaluate(() => location.hash)).includes(published.v1),
+    shown ? 'offered, still on v1' : 'no banner')
+
+  const said = await reader.$eval('#update-title', el => el.textContent)
+  check('the offer names the key\'s claim as a claim',
+    /Lara from work/.test(said), said)
+
+  // Only the reader's click moves them.
+  await reader.click('#update-open')
+  await reader.waitForFunction(
+    hash => location.hash.includes(hash), { timeout: 20_000 }, published.v2).catch(() => {})
+  check('taking the offer navigates to the signed version',
+    (await reader.evaluate(() => location.hash)).includes(published.v2),
+    await reader.evaluate(() => location.hash))
 }
 
 /**
@@ -1028,6 +1127,30 @@ function fetchHeaders (page, infoHash, path) {
     await res.text()
     return Object.fromEntries(res.headers.entries())
   }, infoHash, path)
+}
+
+/**
+ * A local WebTorrent tracker, or nothing.
+ *
+ * Optional on purpose: `bittorrent-tracker` is a dev dependency and a fresh
+ * clone should still run this suite. Without it the checks fall back to the
+ * public trackers, which is slower and flakier but not wrong.
+ */
+async function startTracker (port) {
+  let Server
+  try {
+    ({ Server } = await import('bittorrent-tracker'))
+  } catch {
+    console.log('  (no local tracker: npm install bittorrent-tracker for faster, ' +
+      'deterministic peer discovery)')
+    return null
+  }
+
+  const server = new Server({ udp: false, http: false, ws: true, stats: false })
+  server.on('error', () => {}) // a tracker complaining is not a test failure
+  server.on('warning', () => {})
+  await new Promise(resolve => server.listen(port, resolve))
+  return server
 }
 
 function freePort () {

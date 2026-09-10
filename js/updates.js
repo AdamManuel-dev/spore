@@ -29,10 +29,13 @@ const MAX_RECORD_BYTES = 2048
  * Build the extension class for one torrent.
  *
  * @param {object} options
- * @param {() => (Uint8Array|null)} options.publicKey
+ * @param {() => (Uint8Array|null|Promise<Uint8Array|null>)} options.publicKey
  *   The key this torrent declared in `spore.pub`, or null if it declared none.
- *   Read lazily: a wire can connect before the file has been fetched, and a
- *   site with no key must reject every record rather than trust the first one.
+ *   May return a promise, and usually has to. The extension must be attached
+ *   before the handshake, which is before there is any metadata, let alone a
+ *   fetched file — so at attach time the caller genuinely does not yet know
+ *   which key this site trusts. Awaiting here holds an early record until the
+ *   answer exists, rather than dropping it or, far worse, trusting it.
  * @param {() => (object|null)} options.offer
  *   The record to hand to peers, if we are holding one.
  * @param {(update: { infoHash: string, seq: number }) => void} options.onUpdate
@@ -79,7 +82,7 @@ export function updateExtension (options) {
         return onRejected(`record of ${bytes.length} bytes is implausibly large`)
       }
 
-      const expected = publicKey()
+      const expected = await publicKey()
       if (!expected) {
         // A site that declares no key cannot be updated by anyone, and a peer
         // offering to update one is either confused or trying it on.

@@ -63,6 +63,25 @@
      a copy seeds it again. To keep it on this device, use "Keep offline".</p>
 </div>
 
+<!--
+  A newer version, signed by the key this site declares. Offered, never taken:
+  a signature proves who wrote a thing, not that the reader wants it. Following
+  it is one click, and the click is the reader's.
+-->
+<div id="update" class="update" hidden>
+  <div class="update-who">
+    <span id="update-avatar" class="update-avatar" aria-hidden="true"></span>
+    <p class="update-text">
+      <strong id="update-title">A newer version is available.</strong>
+      <span id="update-detail" class="muted small"></span>
+    </p>
+  </div>
+  <div class="update-row">
+    <button id="update-open" type="button">Open it</button>
+    <button id="update-dismiss" type="button" class="link">Not now</button>
+  </div>
+</div>
+
 <main class="stage">
   <!--
     The site lives here, behind a sandbox. The real flags are set per site from
@@ -130,6 +149,28 @@
           <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
           <span class="button">Choose a folder…</span>
         </label>
+
+        <!--
+          Signing is optional and separate from publishing. A site published
+          without a key is a fine site; it simply can never be updated, because
+          there is nobody it could accept a new version from.
+        -->
+        <div id="signin" class="signin">
+          <p class="muted small">Publishing under a key lets you release a new
+             version later, and lets readers check it really came from you.
+             <button id="signin-open" type="button" class="link">Sign in with a
+             passphrase</button></p>
+        </div>
+
+        <div id="signed-in" class="signed-in" hidden>
+          <span id="me-avatar" class="update-avatar" aria-hidden="true"></span>
+          <p class="muted small">
+            <strong id="me-name">Signed in</strong><br>
+            <span id="me-fingerprint" class="fingerprint"></span><br>
+            <span id="me-history"></span>
+            <button id="signout" type="button" class="link">Sign out</button>
+          </p>
+        </div>
       </section>
     </div>
 

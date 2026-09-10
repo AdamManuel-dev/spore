@@ -53,3 +53,36 @@ function shallowest (paths) {
 function depth (path) {
   return path.split('/').length
 }
+
+/**
+ * The key a site declares for itself, if it declares one.
+ *
+ * `spore.pub` sits beside the entry page, so it is scoped to the site rather
+ * than to the torrent: a torrent that happens to contain several directories
+ * does not let one of them speak for another. Only the file next to the page
+ * actually being rendered counts.
+ *
+ * A site with no `spore.pub` has no author and can never be updated, which is
+ * the correct reading of "this publisher never claimed a key" — not an
+ * invitation for the first peer along to claim one on their behalf.
+ *
+ * @returns {Promise<{publicKey: Uint8Array, hex: string, claimedName: string|null}|null>}
+ */
+export async function readSporePub (torrent, entryPath) {
+  const root = entryPath.includes('/') ? entryPath.slice(0, entryPath.lastIndexOf('/') + 1) : ''
+  const file = torrent.files.find(f => normalize(f.path) === `${root}spore.pub`)
+  if (!file) return null
+
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    // A key file is a couple of lines. Anything larger is not one, and is not
+    // worth decoding to find that out.
+    if (bytes.length > 4096) return null
+    const { parseSporePub } = await import('./identity.js')
+    return parseSporePub(new TextDecoder().decode(bytes))
+  } catch {
+    // Unreadable or malformed: the site declares no usable key. Treated
+    // exactly like declaring none, because a broken claim is not a claim.
+    return null
+  }
+}
