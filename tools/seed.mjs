@@ -25,6 +25,7 @@
  * contains it.
  */
 
+import { createServer } from 'node:http'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
 
@@ -39,6 +40,7 @@ const option = name => {
 const contentPath = option('--path') ? resolve(option('--path')) : process.cwd()
 const pinned = option('--torrent') ? resolve(option('--torrent')) : null
 const name = option('--name')
+const statusPort = option('--status') ? Number(option('--status')) : null
 
 if (!target) {
   console.error(`Seed a Spore site from this machine.
@@ -51,6 +53,9 @@ if (!target) {
   --name <name>      what the site is called. Defaults to the folder's name,
                      which under Docker is the mount point — so every site
                      ends up called "site" unless you say otherwise.
+  --status <port>    answer GET / with a JSON health report, so a monitor, a
+                     Docker HEALTHCHECK or a curl from your laptop can see
+                     inside a running seeder
 
 Needs: npm install webtorrent node-datachannel`)
   process.exit(2)
@@ -83,19 +88,90 @@ client.on('error', err => {
 const announceList = DEFAULT_TRACKERS.map(tracker => [tracker])
 const torrent = await start()
 
+// The failure this catches was invisible for a long time: a pinned .torrent
+// that no longer matches the folder verifies to nothing, and WebTorrent then
+// seeds it perfectly happily at 0%. Peers connect, no data moves, every log
+// line looks healthy. Say it once, loudly, at the only moment anyone reads.
+if (torrent.progress < 1) {
+  console.error(
+    `\nWARNING: only ${Math.round(torrent.progress * 100)}% of this torrent is on disk.\n` +
+    `  ${basename(pinned ?? target)} describes content that ` +
+    `${pinned && !target.endsWith('.torrent') ? resolve(target) : contentPath} does not hold.\n` +
+    `  This process will connect to peers and serve them nothing.\n` +
+    `  Either restore the original files, or delete the pinned torrent and\n` +
+    `  republish — which mints a new magnet, so the old link stops working.\n`)
+}
+
 console.log(`\nSeeding "${torrent.name}"  (${torrent.files.length} files, ${format(torrent.length)})`)
 console.log(`\n  ${torrent.magnetURI}\n`)
 console.log('Open it with any Spore gate by putting that magnet in the fragment:')
 console.log(`  https://<your-gate>/#${torrent.magnetURI}\n`)
 console.log('Leave this running. Ctrl+C stops seeding.\n')
 
-setInterval(() => {
+const startedAt = Date.now()
+
+// A terminal gets a line that rewrites itself every couple of seconds; a log
+// gets one complete line a minute. The difference matters more than it looks:
+// `\r` with no newline never reaches `docker logs` at all, because stdout to a
+// pipe is buffered and Docker splits on newlines. A seeder running under
+// compose used to have no observable heartbeat whatsoever.
+if (process.stdout.isTTY) {
+  setInterval(() => process.stdout.write(`\r${heartbeat()}   `), 2000).unref?.()
+} else {
+  setInterval(() => console.log(heartbeat()), 60_000).unref?.()
+}
+
+if (statusPort) {
+  if (!Number.isInteger(statusPort) || statusPort < 1 || statusPort > 65535) {
+    console.error(`--status needs a port number, not "${option('--status')}"`)
+    process.exit(2)
+  }
+
+  // Deliberately unauthenticated and read-only: it exposes nothing the magnet
+  // does not already tell anyone, and requiring a secret to answer "are you
+  // alive" is how health checks end up switched off.
+  createServer((request, response) => {
+    response.writeHead(200, {
+      'content-type': 'application/json',
+      'cache-control': 'no-store',
+      'access-control-allow-origin': '*'
+    })
+    response.end(JSON.stringify(status(), null, 2) + '\n')
+  }).listen(statusPort, () => {
+    console.log(`Status on http://0.0.0.0:${statusPort}/ — curl it to check this seeder is alive.`)
+  })
+}
+
+/**
+ * What a monitor needs to tell the three failure modes apart.
+ *
+ * `complete` false is the one worth alerting on: it means the pinned torrent
+ * does not match what is in the folder, so this process is announcing a site
+ * it cannot actually serve. It connects to peers and sends them nothing, which
+ * from the outside is indistinguishable from being down.
+ */
+function status () {
+  return {
+    infoHash: torrent.infoHash,
+    name: torrent.name,
+    magnetURI: torrent.magnetURI,
+    files: torrent.files.length,
+    bytes: torrent.length,
+    complete: torrent.progress === 1,
+    progress: Number(torrent.progress.toFixed(4)),
+    peers: torrent.numPeers,
+    uploaded: torrent.uploaded,
+    uptimeSeconds: Math.round((Date.now() - startedAt) / 1000)
+  }
+}
+
+function heartbeat () {
   const peers = torrent.numPeers
-  process.stdout.write(
-    `\r${new Date().toISOString().slice(11, 19)}  ` +
+  return `${new Date().toISOString().slice(11, 19)}  ` +
     `${peers} peer${peers === 1 ? '' : 's'}  ` +
-    `↑ ${format(torrent.uploaded)}   `)
-}, 2000).unref?.()
+    `↑ ${format(torrent.uploaded)}` +
+    (torrent.progress === 1 ? '' : `  INCOMPLETE ${Math.round(torrent.progress * 100)}% — serving nothing`)
+}
 
 process.on('SIGINT', () => {
   console.log('\nStopping.')

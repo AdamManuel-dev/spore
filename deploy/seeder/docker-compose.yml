@@ -27,7 +27,7 @@ services:
     # The torrent's name comes from the folder, which here is the mount point —
     # so without this every published site is called "site". It is part of the
     # infohash, so pick it once: changing it changes the address.
-    command: ["/site", "--torrent", "/data/site.torrent", "--name", "my-site"]
+    command: ["/site", "--torrent", "/data/site.torrent", "--name", "my-site", "--status", "8081"]
     volumes:
       # Not :ro, and it is worth knowing why. Seeding a pinned torrent goes
       # through WebTorrent's add(), which opens the files read-write to verify
@@ -36,6 +36,11 @@ services:
       # verified pieces to offer. Observed as "1 peer, progress 0.00, forever".
       - ./site:/site
       - ./data:/data
-    # Nothing to publish inbound. WebRTC connections are established outbound
-    # through the trackers, so no ports need forwarding and none are exposed.
+    # Nothing to publish inbound for the swarm itself: WebRTC connections are
+    # established outbound through the trackers, so seeding needs no forwarding.
+    # The one port here is the status endpoint, bound to localhost — enough for
+    # `curl` on the box and for the healthcheck, without putting it on the
+    # internet. Change to "8081:8081" to reach it from your laptop.
+    ports:
+      - "127.0.0.1:8081:8081"
     network_mode: bridge

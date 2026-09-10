@@ -33,5 +33,13 @@ RUN npm install --no-audit --no-fund webtorrent node-datachannel
 # survives restarts, rebuilds and moving to another machine.
 VOLUME ["/site", "/data"]
 
+# The status endpoint, so `docker ps` can report more than "the process has not
+# exited". A seeder's characteristic failure is staying up while serving
+# nothing, which a liveness check on the process cannot see.
+EXPOSE 8081
+
+HEALTHCHECK --interval=60s --timeout=5s --start-period=30s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:8081/').then(r=>r.json()).then(s=>process.exit(s.complete?0:1)).catch(()=>process.exit(1))"
+
 ENTRYPOINT ["node", "tools/seed.mjs"]
-CMD ["/site", "--torrent", "/data/site.torrent"]
+CMD ["/site", "--torrent", "/data/site.torrent", "--status", "8081"]
