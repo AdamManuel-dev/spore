@@ -38,6 +38,7 @@ const option = name => {
 }
 const contentPath = option('--path') ? resolve(option('--path')) : process.cwd()
 const pinned = option('--torrent') ? resolve(option('--torrent')) : null
+const name = option('--name')
 
 if (!target) {
   console.error(`Seed a Spore site from this machine.
@@ -47,6 +48,9 @@ if (!target) {
 
   --torrent <file>   write the .torrent here on first run and reuse it after,
                      so the magnet stays identical for the life of the site
+  --name <name>      what the site is called. Defaults to the folder's name,
+                     which under Docker is the mount point — so every site
+                     ends up called "site" unless you say otherwise.
 
 Needs: npm install webtorrent node-datachannel`)
   process.exit(2)
@@ -132,8 +136,10 @@ function start () {
       console.log(`Verifying ${basename(source)} against ${contentPath}…`)
       const added = client.add(readFileSync(source), { path: contentPath }, () => resolve_(added))
     } else {
-      console.log(`Hashing ${source}…`)
-      client.seed(source, { announceList }, seeded => {
+      // `name` is part of the info dictionary, so it is part of the infohash:
+      // renaming a site gives it a different address. Choose it once.
+      console.log(`Hashing ${source}${name ? ` as "${name}"` : ''}…`)
+      client.seed(source, { announceList, ...(name ? { name } : {}) }, seeded => {
         if (pinned) {
           writeFileSync(pinned, seeded.torrentFile)
           console.log(`Wrote ${pinned} — keep it, and this magnet stays valid forever.`)

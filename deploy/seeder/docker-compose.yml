@@ -24,6 +24,10 @@ services:
       context: ../..
       dockerfile: deploy/seeder/Dockerfile
     restart: unless-stopped
+    # The torrent's name comes from the folder, which here is the mount point —
+    # so without this every published site is called "site". It is part of the
+    # infohash, so pick it once: changing it changes the address.
+    command: ["/site", "--torrent", "/data/site.torrent", "--name", "my-site"]
     volumes:
       # Not :ro, and it is worth knowing why. Seeding a pinned torrent goes
       # through WebTorrent's add(), which opens the files read-write to verify
