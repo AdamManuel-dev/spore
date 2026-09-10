@@ -289,6 +289,7 @@ async function run () {
   await checkMissingSiteAndHome(page)
   await checkKeptSiteSurvivesReload(page)
   await checkTorrentWithoutIndex(page)
+  await checkSigningCore(page)
 }
 
 /**
@@ -537,6 +538,153 @@ async function checkMissingSiteAndHome (page) {
     await page.evaluate(() => location.hash))
   await page.evaluate(() => history.pushState(null, '', location.pathname))
   await page.evaluate(() => { location.hash = '' })
+}
+
+/**
+ * The signing core: bencode, BEP 44 records, identities.
+ *
+ * Run in the browser rather than in Node because that is where the code runs
+ * and where WebCrypto's Ed25519 lives. Signatures are over exact bytes, so the
+ * checks that matter are the ones a self-consistent implementation would still
+ * fail: known-answer bencoding, and rejection of records that verify
+ * cryptographically but should not be accepted.
+ */
+async function checkSigningCore (page) {
+  const r = await page.evaluate(async () => {
+    const { encode, decode, toHex, fromHex } = await import('/js/bencode.js')
+    const { signUpdate, verifyUpdate, encodeRecord, decodeRecord, signableBytes } =
+      await import('/js/record.js')
+    const { createIdentity, identityFromPassphrase, identityFromSeed,
+      parseSporePub, formatSporePub, fingerprint, avatar } = await import('/js/identity.js')
+
+    const text = bytes => new TextDecoder().decode(bytes)
+    const out = {}
+
+    // --- bencode, against the values in the specification itself ------------
+    out.bencodeKnown = [
+      text(encode(42)) === 'i42e',
+      text(encode(-1)) === 'i-1e',
+      text(encode(0)) === 'i0e',
+      text(encode('spam')) === '4:spam',
+      text(encode(['spam', 42])) === 'l4:spami42ee',
+      text(encode({ foo: 'bar' })) === 'd3:foo3:bare',
+      // keys sorted by byte value, whatever order they were given in
+      text(encode({ b: 1, a: 2 })) === 'd1:ai2e1:bi1ee'
+    ].every(Boolean)
+
+    out.bencodeRoundTrip = (() => {
+      const value = { ih: new Uint8Array([1, 2, 3]), seq: 7, list: ['x', 9] }
+      const back = decode(encode(value))
+      return toHex(back.ih) === '010203' && back.seq === 7 &&
+             text(back.list[0]) === 'x' && back.list[1] === 9
+    })()
+
+    out.bencodeRejectsTrailing = (() => {
+      try { decode(new TextEncoder().encode('i42ejunk')); return false } catch { return true }
+    })()
+
+    // --- the signable buffer is BEP 44's, not a bencoded dictionary ---------
+    // "3:seqi1e1:v" + bencoded v, with no enclosing d…e.
+    out.signableShape = (() => {
+      const v = { ih: fromHex('00'.repeat(20)) }
+      const bytes = signableBytes({ seq: 1, v })
+      const asText = text(bytes)
+      return asText.startsWith('3:seqi1e1:vd2:ih20:') && !asText.startsWith('d')
+    })()
+
+    // --- identities ---------------------------------------------------------
+    const alice = await createIdentity()
+    out.publicKeyLength = alice.publicKey.length === 32 && /^[0-9a-f]{64}$/.test(alice.hex)
+
+    const seed = new Uint8Array(32).fill(9)
+    const a = await identityFromSeed(seed)
+    const b = await identityFromSeed(seed)
+    out.seedDeterministic = a.hex === b.hex
+
+    const p1 = await identityFromPassphrase('correct horse battery staple gadget')
+    const p2 = await identityFromPassphrase('correct horse battery staple gadget')
+    const p3 = await identityFromPassphrase('correct horse battery staple gadgets')
+    out.passphraseDeterministic = p1.hex === p2.hex
+    out.passphraseTypoIsDifferentAuthor = p1.hex !== p3.hex
+
+    // A derived key must actually be able to sign for its own public half.
+    const derivedRecord = await signUpdate(p1.privateKey, p1.publicKey, 'ab'.repeat(20), 1)
+    out.derivedKeySigns = (await verifyUpdate(derivedRecord, p1.publicKey)).ok === true
+
+    // --- spore.pub ----------------------------------------------------------
+    const parsed = parseSporePub(formatSporePub(alice.hex, 'Hacker One'))
+    out.sporePubRoundTrip = parsed.hex === alice.hex && parsed.claimedName === 'Hacker One'
+    out.sporePubNameOptional = parseSporePub(alice.hex + '\n').claimedName === null
+    out.sporePubRejectsJunk = (() => {
+      try { parseSporePub('not a key'); return false } catch { return true }
+    })()
+
+    // --- the record ---------------------------------------------------------
+    const target = 'cd'.repeat(20)
+    const record = await signUpdate(alice.privateKey, alice.publicKey, target, 2)
+    const wire = decodeRecord(encodeRecord(record))
+
+    out.verifies = (await verifyUpdate(wire, alice.publicKey)).ok === true
+    out.returnsInfoHash = (await verifyUpdate(wire, alice.publicKey)).infoHash === target
+
+    // Rule 2: signed by a key other than the one the site declares. This is
+    // the one that stops a peer announcing a successor of its own.
+    const mallory = await createIdentity()
+    const forged = await signUpdate(mallory.privateKey, mallory.publicKey, 'ee'.repeat(20), 99)
+    const wrongKey = await verifyUpdate(forged, alice.publicKey)
+    out.rejectsOtherKey = wrongKey.ok === false && /different key/.test(wrongKey.reason)
+
+    // Rule 3: tampering with the payload after signing.
+    const tampered = decodeRecord(encodeRecord(record))
+    tampered.v.ih = fromHex('ff'.repeat(20))
+    out.rejectsTamperedValue = (await verifyUpdate(tampered, alice.publicKey)).ok === false
+
+    const bumped = decodeRecord(encodeRecord(record))
+    bumped.seq = 500
+    out.rejectsTamperedSeq = (await verifyUpdate(bumped, alice.publicKey)).ok === false
+
+    // Rule 4: authentic but stale.
+    const replay = await verifyUpdate(wire, alice.publicKey, { knownSeq: 5 })
+    out.rejectsReplay = replay.ok === false && /not newer/.test(replay.reason)
+    out.acceptsNewer = (await verifyUpdate(wire, alice.publicKey, { knownSeq: 1 })).ok === true
+
+    // Rule 5: pointing at what is already open.
+    out.rejectsSelfPointer =
+      (await verifyUpdate(wire, alice.publicKey, { currentInfoHash: target })).ok === false
+
+    // --- how a key is shown -------------------------------------------------
+    out.fingerprint = await fingerprint(alice.publicKey)
+    out.fingerprintStable = out.fingerprint === await fingerprint(alice.publicKey)
+    out.fingerprintDiffers = out.fingerprint !== await fingerprint(mallory.publicKey)
+    const svg = await avatar(alice.publicKey)
+    out.avatarIsSvg = svg.startsWith('<svg') && svg.includes('viewBox="0 0 5 5"')
+    out.avatarDiffers = svg !== await avatar(mallory.publicKey)
+
+    return out
+  })
+
+  check('bencode matches the known values in the specification', r.bencodeKnown)
+  check('bencode round-trips bytes, integers and nested values', r.bencodeRoundTrip)
+  check('bencode refuses trailing junk', r.bencodeRejectsTrailing)
+  check('the signed buffer is BEP 44 fields, not a bencoded dictionary', r.signableShape)
+  check('a generated identity has a 32-byte public key', r.publicKeyLength)
+  check('the same seed always gives the same identity', r.seedDeterministic)
+  check('the same passphrase always gives the same identity', r.passphraseDeterministic)
+  check('a mistyped passphrase silently gives a different author', r.passphraseTypoIsDifferentAuthor)
+  check('a passphrase-derived key can sign for its own public half', r.derivedKeySigns)
+  check('spore.pub round-trips a key and a claimed name', r.sporePubRoundTrip)
+  check('spore.pub works without a claimed name', r.sporePubNameOptional)
+  check('spore.pub refuses anything that is not a key', r.sporePubRejectsJunk)
+  check('a signed update verifies and yields its infohash', r.verifies && r.returnsInfoHash)
+  check('an update signed by another key is refused', r.rejectsOtherKey)
+  check('tampering with the infohash breaks the signature', r.rejectsTamperedValue)
+  check('tampering with the sequence breaks the signature', r.rejectsTamperedSeq)
+  check('an authentic but stale update is refused', r.rejectsReplay)
+  check('a newer update is accepted', r.acceptsNewer)
+  check('an update pointing at the current version is refused', r.rejectsSelfPointer)
+  check('a key has a stable, distinctive fingerprint',
+    r.fingerprintStable && r.fingerprintDiffers, r.fingerprint)
+  check('a key has a deterministic, distinctive avatar', r.avatarIsSvg && r.avatarDiffers)
 }
 
 /**
