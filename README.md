@@ -232,97 +232,75 @@ this are really working around.
 
 Modern WebTorrent does WebRTC in Node directly, so it takes one dependency and
 one line — `webtorrent-hybrid`, which older guides install, is no longer
-needed:
-
-```sh
-npm install webtorrent node-datachannel
-node tools/seed.mjs ./my-site
-```
+needed.
 
 ### With Docker
 
 ```sh
 cd deploy/seeder
-mkdir -p site data
-cp -r your-website/. site/
+cp .env.example .env && $EDITOR .env     # name, site, passphrase
+mkdir -p site data && cp -r your-website/. site/
 docker compose up -d
-docker compose logs        # the magnet is printed once, at startup
-curl -s localhost:8081     # is it actually serving?
+docker compose logs                      # the magnet is printed at startup
+curl -s localhost:8081                   # is it actually serving?
 ```
 
-`site/` is your website; `data/` holds the pinned `.torrent`. **Keep `data/`.**
-It is what makes the magnet survive restarts, rebuilds and moving to another
-machine — verified: restart the container and the same infohash comes back,
-because it seeds the stored torrent rather than re-hashing the folder.
+Everything is configured in `.env`, so there are no arguments to get wrong and
+the passphrase never reaches a command line — where `docker inspect`, `ps`, and
+shell history would all have it.
+
+`site/` is your website and can be mounted read-only; the seeder never writes
+there. `data/` holds a frozen copy of every version it has published, plus
+`versions.json`. **Keep `data/`.** It is what makes each magnet permanent and
+what lets readers on an old version ever hear about a new one.
 
 Nothing needs to be exposed. WebRTC connections are established outbound
-through the trackers, so there are no ports to forward and none are published.
+through the trackers, so there are no ports to forward. The only published port
+is the status endpoint, on `127.0.0.1`.
 
-One thing that looks like a bug and is not, so it is worth stating: the site
-volume is **not** mounted read-only. Seeding a pinned torrent goes through
-WebTorrent's `add()`, which opens the files read-write to verify them. Mounted
-`:ro` the seeder connects to peers and then serves nothing — verification fails
-quietly and it has no verified pieces to offer. It looks exactly like
-`1 peer, progress 0.00` and never finishing.
+### Editing the site
 
-It prints the magnet and holds it. Verified end to end: the seeder reported
-`1 peer  ↑ 15 kB` while a browser gate rendered the site from it in about six
-seconds, with no other peer anywhere.
+Change anything in `site/` and within `SPORE_WATCH_SECONDS` the seeder hashes
+it, publishes it as a new version, signs a successor with your key, and offers
+that to anyone still reading an older version. You do not restart anything and
+you do not hand out a new link — readers of the old one are told.
+
+It keeps seeding the old versions, up to `SPORE_KEEP_VERSIONS`. That is not
+politeness, it is the mechanism: the successor travels between peers, so only
+something holding the version a reader is on can tell them there is a newer
+one. Drop the old version and the news reaches nobody.
+
+Without `SPORE_PASSPHRASE` the site is still served, and new versions are still
+published — but nothing is signed, so nobody is ever told about them. Readers
+have no key to check a successor against.
+
+Verified end to end: a browser opened version 1 from this seeder, the file was
+edited on the server, and the offer appeared in the browser a few seconds later
+without touching the tab.
 
 ### Is it alive?
 
 A seeder's characteristic failure is not crashing. It is staying up while
-serving nothing — announcing a torrent whose files no longer verify, accepting
-peer connections, and sending them no data. Every log line reads healthy. So
-`--status <port>` answers with what actually matters:
+serving nothing, and every log line reading healthy while it happens. So it
+answers on `SPORE_STATUS_PORT` with what actually matters:
 
 ```sh
 curl -s localhost:8081
-{ "infoHash": "…", "complete": true, "progress": 1, "peers": 2, "uploaded": 15360, … }
+{
+  "site": "blog", "signed": true, "complete": true,
+  "current": "de1306c4…", "peers": 2, "uploaded": 15982,
+  "versions": [ { "infoHash": "27f3c615…", "complete": true, "peers": 1 }, … ]
+}
 ```
 
-`complete: false` is the one to alert on: the pinned `.torrent` describes
-content the folder does not hold. That is also the Docker `HEALTHCHECK`, so
-`docker compose ps` reports `healthy` rather than merely `Up`, and the seeder
-now says so loudly at startup instead of leaving it to be discovered by asking
-why a site went dark.
+`complete: false` is the one to alert on. It is also the Docker `HEALTHCHECK`,
+so `docker compose ps` reports `healthy` rather than merely `Up`.
 
-The port is published on `127.0.0.1` only. It exposes nothing the magnet does
-not already tell anyone, but there is no reason to put it on the internet.
-
-**To keep an existing link**, do not re-publish the folder — re-creating a
-torrent does not reliably reproduce the same infohash, and a different
-infohash is a different site. Open the site in the gate, press
-**Save .torrent** in the status bar, and give the server that file:
-
-```sh
-node tools/seed.mjs my-site.torrent --path /srv/sites
-```
-
-`--path` is the directory containing the site's folder. WebTorrent verifies
-what is already on disk and seeds it under the original infohash.
-
-Both images run on x86-64 and 64-bit ARM, so a Raspberry Pi 5 is a perfectly
-good seeder — see [deploy/](deploy/#architectures), including the one
-architecture that will not work.
-
-Keep it running however you keep anything running — `systemd`, `pm2`, a
-`tmux` window, `docker compose up -d`. Nothing about Spore cares which.
-
-### What "permanent" does and does not mean
-
-The link keeps working for as long as something is seeding it, and this is that
-something. Two limits worth understanding before you rely on it:
-
-- **Editing the site changes its address.** Content *is* the address here, so a
-  new version is a new magnet, and the old link goes on serving the old bytes
-  until nobody holds them. What carries readers across that gap is a signed
-  successor — see [Updating a site](#updating-a-site) — which reaches only the
-  people whose peers hold it. Keep the *old* version seeded too, or nobody
-  still on it ever hears.
-- **One seeder is one point of failure**, which is the thing Spore is supposed
-  to avoid. The seeder makes a site *available*; readers keeping it open are
-  what make it *resilient*. They are not the same property.
+That check exists because the failure was real and cost an afternoon: the
+seeder was announcing a torrent it could not read a single byte of, reporting
+itself complete the whole time, because `progress` comes from the piece map
+built while hashing rather than from the disk. It now reads every file back
+before announcing it, and refuses to publish a version it cannot read.
 
 ## Keeping a site
 

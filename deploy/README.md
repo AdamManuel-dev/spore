@@ -62,16 +62,25 @@ containers entirely and drop the bundle on any static host, which is what
 
 ```sh
 cd deploy/seeder
+cp .env.example .env && $EDITOR .env    # name, site, signing passphrase
 mkdir -p site data
 cp -r /path/to/your-website/. site/
 docker compose up -d
-docker compose logs           # the magnet, printed once at startup
+docker compose logs                     # the magnet, printed at startup
+curl -s localhost:8081                  # and is it actually serving?
 ```
 
-`site/` is the folder being served; `data/site.torrent` pins the magnet so it
-survives restarts and rebuilds. Keep `data/`.
+Everything is configured in `.env`, including `SPORE_PASSPHRASE`, which is
+read from the environment and never from an argument: a command line is
+visible in `docker inspect`, in `ps`, and in shell history. `.env` is
+gitignored — `chmod 600` it.
 
-Two things that are easy to get wrong and are commented in the compose file:
-the site volume cannot be mounted `:ro` (WebTorrent opens the files read-write
-to verify them, and read-only it serves nothing while looking healthy), and
-editing the site changes its address, because content *is* the address here.
+`site/` is the folder being served and is mounted read-only; the seeder never
+writes there. `data/` holds a frozen copy of every version it has published.
+**Keep `data/`**: it is what makes each magnet permanent, and what lets a
+reader on an old version ever be told about a new one.
+
+Editing the site publishes a new version within `SPORE_WATCH_SECONDS`, signed
+with your key and offered to readers still on the older ones — which keep being
+seeded, because a successor travels between peers and only something holding
+the old version can pass it on.

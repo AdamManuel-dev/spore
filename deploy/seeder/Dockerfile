@@ -21,16 +21,18 @@ FROM node:22-slim
 
 WORKDIR /app
 
-# Only the two files the seeder actually needs, so a change to the gate does
-# not invalidate this layer.
+# The seeder signs with the gate's own code rather than a second implementation
+# that could drift from it — the same bencode, the same BEP 44 record, the same
+# key derivation. All of it runs unmodified under Node: WebCrypto has Ed25519.
 COPY package.json ./
-COPY js/config.js ./js/config.js
+COPY js/config.js js/bencode.js js/identity.js js/record.js js/updates.js ./js/
 COPY tools/seed.mjs ./tools/seed.mjs
 
 RUN npm install --no-audit --no-fund webtorrent node-datachannel
 
-# /site is the folder to serve; /data holds the pinned .torrent so the magnet
-# survives restarts, rebuilds and moving to another machine.
+# /site is the folder to serve, and can be mounted read-only. /data holds a
+# frozen copy of every published version — that is what makes each magnet
+# permanent, and what lets readers on an old version be told about a new one.
 VOLUME ["/site", "/data"]
 
 # The status endpoint, so `docker ps` can report more than "the process has not
@@ -38,8 +40,12 @@ VOLUME ["/site", "/data"]
 # nothing, which a liveness check on the process cannot see.
 EXPOSE 8081
 
-HEALTHCHECK --interval=60s --timeout=5s --start-period=30s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:8081/').then(r=>r.json()).then(s=>process.exit(s.complete?0:1)).catch(()=>process.exit(1))"
+# Healthy means every version it claims to seed actually verifies — not merely
+# that the process has not exited, which is a seeder's characteristic failure.
+HEALTHCHECK --interval=60s --timeout=5s --start-period=40s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.SPORE_STATUS_PORT||8081)+'/').then(r=>r.json()).then(s=>process.exit(s.complete?0:1)).catch(()=>process.exit(1))"
 
+# No arguments. Everything is configuration, and configuration is environment —
+# which keeps the passphrase out of the command line, where `docker inspect`
+# and `ps` would show it to anyone on the host.
 ENTRYPOINT ["node", "tools/seed.mjs"]
-CMD ["/site", "--torrent", "/data/site.torrent", "--status", "8081"]

@@ -7,3 +7,6 @@ deploy/seeder/data/
 
 # Secrets for local skills — never committed.
 .claude/skills/*/credentials.env
+
+# Seeder configuration, including the signing passphrase.
+deploy/seeder/.env
