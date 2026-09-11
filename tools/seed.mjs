@@ -123,6 +123,31 @@ if (!existsSync(contentPath)) {
   process.exit(1)
 }
 
+// Checked up front, with an explanation. Every version is a copy written here,
+// so a data directory this process cannot write to is fatal — and the failure
+// it would otherwise produce is an EACCES stack trace several seconds later,
+// from inside a copy, which says nothing about whose fault it is.
+try {
+  // Both directories: `versions/` may already exist and be owned by somebody
+  // else — an earlier run of this image as root is the obvious way — in which
+  // case the parent is writable and the place that matters is not.
+  for (const dir of [dataPath, versionsPath]) {
+    await mkdir(dir, { recursive: true })
+    const probe = join(dir, '.writable')
+    await writeFile(probe, '')
+    await rm(probe, { force: true })
+  }
+} catch (err) {
+  console.error(
+    `Cannot write to ${dataPath} (${err.code ?? err.message}).\n\n` +
+    'Every version is kept there, so this is fatal. Under Docker the image runs\n' +
+    'as uid 1000; if your account is not uid 1000, set `user: "${UID}:${GID}"` in\n' +
+    'the compose file, or chown the directory. Files left by an older release,\n' +
+    'which ran as root, need removing first:\n\n' +
+    '  sudo rm -rf data/')
+  process.exit(1)
+}
+
 /* -------------------------------------------------------------------------- */
 
 let WebTorrent, wrtc

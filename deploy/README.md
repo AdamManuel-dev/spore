@@ -17,6 +17,13 @@ alone, and most people only ever need the gate.
 
 ## Architectures
 
+The seeder is published as a multi-arch image, so on a supported architecture
+there is nothing to build:
+
+```sh
+docker pull dangerblack/spore-seeder:latest   # linux/amd64, linux/arm64
+```
+
 Both images build and run on **x86-64** and on **64-bit ARM** — a Raspberry Pi
 5 running 64-bit Raspberry Pi OS or Ubuntu is fine, and so is an Apple Silicon
 machine. Docker picks the right architecture for the host on its own; there is

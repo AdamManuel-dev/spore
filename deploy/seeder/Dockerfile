@@ -45,6 +45,13 @@ EXPOSE 8081
 HEALTHCHECK --interval=60s --timeout=5s --start-period=40s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.SPORE_STATUS_PORT||8081)+'/').then(r=>r.json()).then(s=>process.exit(s.complete?0:1)).catch(()=>process.exit(1))"
 
+# Not root. The seeder writes a frozen copy of every version into /data, and as
+# root those land owned by root on the host — files the operator then cannot
+# delete without sudo. That happened, and it is a miserable thing to hand
+# somebody. `node` is uid 1000 in this image, which matches the first user
+# account on a typical Linux host; if yours differs, set `user:` in compose.
+USER node
+
 # No arguments. Everything is configuration, and configuration is environment —
 # which keeps the passphrase out of the command line, where `docker inspect`
 # and `ps` would show it to anyone on the host.

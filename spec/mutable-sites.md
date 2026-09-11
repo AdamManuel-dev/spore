@@ -511,6 +511,12 @@ publisher halves in the gate: `js/bencode.js`, `js/record.js`, `js/identity.js`,
 `tools/e2e.mjs`, including the whole loop driven through the gate's own UI
 across three browser contexts.
 
+`tools/seed.mjs` publishes and signs from a server using those same modules
+unmodified — Node's WebCrypto has Ed25519 — and keeps every version seeded,
+which is what lets an update reach anyone at all: the record travels between
+peers, so only something still holding the version a reader is on can pass it
+to them.
+
 Two implementation notes that the design above does not imply and that cost real
 time to find:
 
@@ -523,8 +529,14 @@ either. Attaching that early means the site's own key is not yet readable, so
 the key is resolved through a promise and any record arriving first waits for
 it.
 
-Not implemented: the rendezvous swarm, introductions, petnames, flagging, and
-key rotation.
+Petnames are implemented, in the narrow sense the design calls for: a reader
+can name a key, the name is stored only in that browser, it is never published,
+and it replaces the key's self-declared claim wherever that reader sees it.
+Nothing exports or shares them, which is deliberate — see
+[Flags stay local](#flags-stay-local).
+
+Not implemented: the rendezvous swarm, introductions, flagging, and key
+rotation.
 
 ## Interoperability
 

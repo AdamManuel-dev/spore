@@ -31,6 +31,11 @@ services:
     # `ps` and shell history would all have it.
     env_file: .env
 
+    # The image runs as uid 1000 so that files in data/ belong to you rather than
+    # to root. If your account is not uid 1000, uncomment this — otherwise the
+    # seeder cannot write its version history and will say so and stop.
+    # user: "${UID}:${GID}"
+
     volumes:
       # The folder you edit. Read-only is fine and correct: the seeder copies
       # each version into data/ and seeds the copy, so it never writes here.

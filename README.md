@@ -236,13 +236,32 @@ needed.
 
 ### With Docker
 
+There is a published image, so this needs no clone:
+
+```sh
+mkdir spore-seeder && cd spore-seeder
+mkdir -p site data && cp -r /path/to/your-website/. site/
+
+curl -O https://raw.githubusercontent.com/DangerBlack/spore/main/deploy/seeder/.env.example
+cp .env.example .env && $EDITOR .env     # name, site, passphrase
+chmod 600 .env                           # it holds your signing passphrase
+
+docker run -d --name spore-seeder --restart unless-stopped \
+  --env-file .env -v "$PWD/site:/site:ro" -v "$PWD/data:/data" \
+  -p 127.0.0.1:8081:8081 dangerblack/spore-seeder:latest
+
+docker logs spore-seeder                 # the magnet is printed at startup
+curl -s localhost:8081                   # is it actually serving?
+```
+
+`linux/amd64` and `linux/arm64`, so a Raspberry Pi 5 is a perfectly good
+seeder. Or from a clone, with compose:
+
 ```sh
 cd deploy/seeder
-cp .env.example .env && $EDITOR .env     # name, site, passphrase
+cp .env.example .env && $EDITOR .env
 mkdir -p site data && cp -r your-website/. site/
 docker compose up -d
-docker compose logs                      # the magnet is printed at startup
-curl -s localhost:8081                   # is it actually serving?
 ```
 
 Everything is configured in `.env`, so there are no arguments to get wrong and
@@ -385,7 +404,7 @@ deploy/seeder/      container that seeds one site, permanently
 vendor/             WebTorrent, committed verbatim (see vendor/README.md)
 tools/serve.mjs     dev server
 tools/e2e.mjs       browser check of both MVP promises and the security model
-tools/seed.mjs      seed a site from a server, with a --status health endpoint
+tools/seed.mjs      seed a site from a server: signs, versions, health endpoint
 spec/               protocol drafts, for anyone writing a second gate
 example-site/       the Spore whitepaper, published through Spore
 ```
