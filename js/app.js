@@ -48,6 +48,9 @@ const ui = {
   keptList: el('kept-list'),
   keptUsage: el('kept-usage'),
   share: el('share'),
+  shareIntro: el('share-intro'),
+  shareNote: el('share-note'),
+  shareOpen: el('share-open'),
   shareSuccessor: el('share-successor'),
   shareLink: el('share-link'),
   copy: el('copy'),
@@ -181,6 +184,7 @@ async function boot () {
   // betrayal that stops people bothering to name anything.
   ui.authorDialog.addEventListener('close', onAuthorClose)
   ui.authorForget.addEventListener('click', onForgetAuthor)
+  ui.shareOpen.addEventListener('click', onShare)
   ui.saveTorrent.addEventListener('click', onSaveTorrent)
   ui.diagnose.addEventListener('click', showDiagnostics)
   ui.diagnosticsClose.addEventListener('click', () => ui.diagnostics.close())
@@ -377,6 +381,7 @@ async function render (torrent, entry) {
   ui.keep.disabled = false
   ui.keepLabel.hidden = false
   ui.saveTorrent.hidden = false
+  ui.shareOpen.hidden = false
   const shown = ui.viewer.show(entryURL(torrent.infoHash, entry), { scripts: allowed })
   ui.welcome.hidden = true
   ui.notice.hidden = true
@@ -1056,7 +1061,11 @@ function renderKeptSite (site) {
   const item = document.createElement('li')
 
   const link = document.createElement('a')
-  link.href = `#${site.infoHash}`
+  // The magnet it was kept with, not a bare infohash rebuilt from the hash: an
+  // infohash on its own names the content and says nothing about where to ask
+  // for it, so it opens here — where the bytes are already on disk — and is
+  // useless to anyone else.
+  link.href = `#${site.magnetURI ?? magnetFor(site.infoHash, site.name)}`
   link.textContent = site.name || site.infoHash
   item.append(link)
 
@@ -1112,6 +1121,7 @@ function showListing (torrent) {
   ui.keepLabel.hidden = false
   ui.keep.disabled = false
   ui.saveTorrent.hidden = false
+  ui.shareOpen.hidden = false
   ui.status.textContent = torrent.name ?? torrent.infoHash
 
   watchStats(torrent)
@@ -1403,12 +1413,39 @@ function showSuccessorNote ({ site, reaching }) {
   ui.shareSuccessor.hidden = false
 }
 
-function showShareLink (magnet) {
+/**
+ * @param {string} magnet
+ * @param {boolean} justPublished  false when the reader asked for the link of a
+ *   site already on screen, which needs different words: nothing was published.
+ */
+function showShareLink (magnet, justPublished = true) {
   ui.shareSuccessor.hidden = true
+
+  ui.shareIntro.innerHTML = justPublished
+    ? '<strong>Published.</strong> Share this link — it works from any Spore mirror.'
+    : '<strong>Share this site.</strong> The link works from any Spore mirror.'
+  ui.shareNote.hidden = !justPublished
+
   const link = new URL(location.href)
   link.hash = magnet
   ui.shareLink.value = link.href
   ui.share.hidden = false
+}
+
+/**
+ * Hand over a link to whatever is on screen.
+ *
+ * Until now the only way to get one was to publish something, so a site
+ * reopened later — from a kept copy, or from anyone's magnet — could be read
+ * and not passed on. Taken from `torrent.magnetURI` rather than rebuilt from
+ * the infohash, because that carries the trackers the site was actually
+ * published with and its display name. A bare infohash is not shareable: a
+ * friend's gate has nowhere to ask.
+ */
+function onShare () {
+  if (!current) return
+  showShareLink(current.torrent.magnetURI, false)
+  ui.shareLink.select()
 }
 
 async function onCopy () {
@@ -1442,6 +1479,7 @@ function showWelcome () {
   ui.keep.disabled = true
   ui.keepLabel.hidden = true
   ui.saveTorrent.hidden = true
+  ui.shareOpen.hidden = true
   ui.status.textContent = 'Nothing open'
   showSeedingCount()
   ui.progress.textContent = ''

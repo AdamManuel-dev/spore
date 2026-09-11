@@ -52,15 +52,17 @@
 </header>
 
 <div id="share" class="share" hidden>
-  <p><strong>Published.</strong> Share this link — it works from any Spore mirror.</p>
+  <p id="share-intro"><strong>Published.</strong> Share this link — it works from
+     any Spore mirror.</p>
   <div class="share-row">
     <input id="share-link" class="share-link" type="text" readonly>
     <button id="copy" type="button">Copy link</button>
     <button id="share-dismiss" type="button" aria-label="Dismiss">✕</button>
   </div>
-  <p class="muted small">The site stays reachable while this tab is open, plus any
-     tab that has it open. Close them all and it goes dormant until someone with
-     a copy seeds it again. To keep it on this device, use "Keep offline".</p>
+  <p id="share-note" class="muted small">The site stays reachable while this tab
+     is open, plus any tab that has it open. Close them all and it goes dormant
+     until someone with a copy seeds it again. To keep it on this device, use
+     "Keep offline".</p>
   <p id="share-successor" class="muted small" hidden></p>
 </div>
 
@@ -203,6 +205,8 @@
   </button>
   <span id="peers"></span>
   <span id="progress"></span>
+  <button id="share-open" type="button" class="link" hidden
+          title="Copy a link to this site that works from any Spore gate">Share</button>
   <button id="save-torrent" type="button" class="link" hidden
           title="Save this site's .torrent, to seed it from a server">Save .torrent</button>
   <button id="diagnose" type="button" class="link">Diagnostics</button>

@@ -90,6 +90,11 @@ export async function keep (torrent, onProgress = () => {}) {
     infoHash: torrent.infoHash,
     name: torrent.name,
     length: torrent.length,
+    // Kept so the site stays *shareable*, not just readable. Rebuilding a
+    // magnet from the infohash alone loses the trackers it was published with
+    // and the display name — and a bare infohash is not something a friend can
+    // open, because their gate has nowhere to ask.
+    magnetURI: torrent.magnetURI,
     torrentFile: new Uint8Array(torrent.torrentFile),
     savedAt: Date.now()
   })

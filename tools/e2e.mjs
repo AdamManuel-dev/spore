@@ -441,6 +441,27 @@ async function checkKeepingOffline (page, infoHash) {
     await page.$eval('#kept-list', list => list.children.length === 1 &&
       !!list.querySelector('button')))
 
+  // Keeping a site must not cost you the ability to pass it on. The list used
+  // to link to a bare infohash, which opens here — the bytes are already on
+  // disk — and is useless to anyone else, because it names the content and
+  // says nothing about where to ask for it.
+  const keptLink = await page.$eval('#kept-list a', a => a.getAttribute('href'))
+  check('a kept site is listed by a link a friend could actually open',
+    keptLink.startsWith('#magnet:?xt=urn:btih:') && keptLink.includes('tr='),
+    keptLink.slice(0, 70))
+
+  // And any open site can be handed over, however it was reached.
+  await page.click('#share-open')
+  await page.waitForFunction(() => !document.getElementById('share').hidden, { timeout: 10_000 })
+  const shared = await page.$eval('#share-link', input => input.value)
+  check('any site on screen offers a shareable link, not just a freshly published one',
+    shared.includes('#magnet:?xt=urn:btih:' + infoHash) && shared.includes('tr='),
+    shared.slice(0, 80))
+  check('and it does not claim the reader just published it',
+    !/Published\./.test(await page.$eval('#share-intro', el => el.textContent)),
+    await page.$eval('#share-intro', el => el.textContent.trim().slice(0, 40)))
+  await page.click('#share-dismiss')
+
   // The payoff: a kept site comes back complete, with no peer to ask.
   const restored = await page.evaluate(async hash => {
     const { restoreAll } = await import('/js/keep.js')
@@ -1066,7 +1087,16 @@ async function checkRememberedKey () {
   })
   check('the restored key can still sign', signed === 64, String(signed))
 
+  // Waited for, not assumed. Forgetting deletes a record from IndexedDB, and
+  // reloading the instant the button is clicked can outrun the transaction —
+  // which fails as "the key came back", a far more alarming thing than the
+  // timing bug it actually is.
   await page.click('#signout')
+  await page.waitForFunction(async () => {
+    const { isRemembered } = await import('/js/me.js')
+    return !(await isRemembered())
+  }, { timeout: 15_000 })
+
   await page.reload({ waitUntil: 'load' })
   await ready()
   await wait(1500)

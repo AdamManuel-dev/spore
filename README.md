@@ -338,6 +338,13 @@ This is not the same as always-on availability: a kept site is still only
 reachable while one of your tabs is open. A seeder that runs without a browser
 is a later phase.
 
+Keeping a site does not cost you the ability to pass it on. The list links to
+the magnet the site was kept with — trackers and all — and **Share** in the
+status bar hands you a link for whatever is on screen, however you got there.
+A bare infohash is not a substitute: it names the content and says nothing
+about where to ask for it, so it opens on the device that already has the
+bytes and is useless to anybody else.
+
 ## What this is not
 
 - **Not anonymity.** Peers in a swarm see each other's IP addresses. Spore
