@@ -11,8 +11,11 @@ import { openDatabase, usage } from './idb.js'
 import { KEEP_WARNING, forget, isKept, keep, keptSites, restoreAll, restoreOne } from './keep.js'
 import { InvalidSiteRef, magnetFor, parseSiteRef, webSeedHosts } from './magnet.js'
 import { scriptsAllowed, servePolicyQueries, setScriptsAllowed } from './policy.js'
-import { filesFromDrop, filesFromInput, publish } from './publish.js'
-import { lastPublished, me, recordPublished, signIn, signOut } from './me.js'
+import { checkPublishable, filesFromDrop, filesFromInput, publish } from './publish.js'
+import {
+  REMEMBER_WARNING, isRemembered, knownKey, labelFor, lastPublished, me, recordPublished,
+  rememberKeyOnDevice, restoreRememberedKey, signIn, signOut, useIdentity
+} from './me.js'
 import { signUpdate } from './record.js'
 import { avatar, fingerprint, formatSporePub } from './identity.js'
 import { entryURL, findEntry, readSporePub } from './site.js'
@@ -71,14 +74,38 @@ const ui = {
   diagnosticsReset: el('diagnostics-reset'),
   diagnosticsClose: el('diagnostics-close'),
   dropzone: el('dropzone'),
-  signin: el('signin'),
-  signinOpen: el('signin-open'),
   signedIn: el('signed-in'),
   meAvatar: el('me-avatar'),
   meName: el('me-name'),
   meFingerprint: el('me-fingerprint'),
   meHistory: el('me-history'),
   signout: el('signout'),
+  signinDialog: el('signin-dialog'),
+  signinTitle: el('signin-title'),
+  signinWhat: el('signin-what'),
+  stepChoose: el('signin-step-choose'),
+  stepEnter: el('signin-step-enter'),
+  stepConfirm: el('signin-step-confirm'),
+  knownAvatar: el('signin-known-avatar'),
+  knownLabel: el('signin-known-label'),
+  knownFingerprint: el('signin-known-fingerprint'),
+  signinOther: el('signin-other'),
+  signinSkipKnown: el('signin-skip-known'),
+  signinUseKnown: el('signin-use-known'),
+  passphrase: el('signin-passphrase'),
+  reveal: el('signin-reveal'),
+  signinError: el('signin-error'),
+  signinCancel: el('signin-cancel'),
+  signinSkip: el('signin-skip'),
+  signinContinue: el('signin-continue'),
+  signinAvatar: el('signin-avatar'),
+  signinRecognised: el('signin-recognised'),
+  signinFingerprint: el('signin-fingerprint'),
+  signinLabel: el('signin-label'),
+  signinRemember: el('signin-remember'),
+  signinRisk: el('signin-risk'),
+  signinBack: el('signin-back'),
+  signinUse: el('signin-use'),
   folder: el('folder-input')
 }
 
@@ -118,8 +145,11 @@ async function boot () {
   ui.keep.addEventListener('change', onKeepToggle)
   ui.copy.addEventListener('click', onCopy)
   ui.shareDismiss.addEventListener('click', () => { ui.share.hidden = true })
-  ui.signinOpen.addEventListener('click', onSignIn)
   ui.signout.addEventListener('click', onSignOut)
+  ui.reveal.addEventListener('change', () => {
+    ui.passphrase.type = ui.reveal.checked ? 'text' : 'password'
+  })
+  ui.signinRisk.addEventListener('click', () => alert(REMEMBER_WARNING))
   ui.updateOpen.addEventListener('click', onUpdateOpen)
   ui.updateDismiss.addEventListener('click', onUpdateDismiss)
   ui.saveTorrent.addEventListener('click', onSaveTorrent)
@@ -153,6 +183,11 @@ async function boot () {
   // memory-backed copy of a torrent already being restored. WebTorrent returns
   // the existing torrent for a duplicate infohash, so the loser is discarded.
   restoreKept()
+
+  // Same reasoning: a key kept on this device is a convenience for publishing,
+  // and nothing on the reading path waits for it.
+  restoreIdentity().catch(err =>
+    console.warn('Spore: could not restore the key kept on this device:', err))
 
   route()
 }
@@ -330,63 +365,185 @@ async function render (torrent, entry) {
 /* Signing in                                                                 */
 /* -------------------------------------------------------------------------- */
 
-const SIGNIN_PROMPT = `Passphrase for your publishing key.
+/**
+ * Ask, once per publication, whether to sign it.
+ *
+ * At publish time rather than as a login, because that is when the question is
+ * a real one: signing is what makes a *later* version reachable from this one,
+ * and a site published without a key is a perfectly good site that simply can
+ * never be updated. Asking up front turned it into an account to create before
+ * you were allowed to do anything, which it is not.
+ *
+ * @returns {Promise<{sign: boolean}|null>} null if the publisher backed out
+ */
+function askAboutSigning (what) {
+  ui.signinWhat.textContent = what ?? 'this folder'
+  ui.passphrase.value = ''
+  ui.signinLabel.value = ''
+  ui.reveal.checked = false
+  ui.passphrase.type = 'password'
+  ui.signinError.hidden = true
+  ui.signinRemember.checked = false
 
-This never leaves the browser and is never stored. The key is derived from the
-phrase itself, so the phrase IS the key: anyone who learns it can publish as
-you, and nobody — including you — can recover it or reset it if it is lost.
+  const known = me()
+  if (known) showChooseStep(known)
+  else showStep(ui.stepEnter, 'Sign this site?')
 
-Use a long phrase you do not use anywhere else.`
+  ui.signinDialog.showModal()
+
+  return new Promise(resolve => {
+    /** @type {object|null} the identity derived in this dialog, pre-confirmation */
+    let derived = null
+
+    const finish = answer => {
+      ui.signinDialog.close()
+      cleanup()
+      resolve(answer)
+    }
+
+    const onContinue = async () => {
+      const passphrase = ui.passphrase.value
+      if (!passphrase) {
+        ui.signinError.textContent = 'A passphrase is needed to sign.'
+        ui.signinError.hidden = false
+        return
+      }
+
+      // Deriving is ~1.2M PBKDF2 iterations and is meant to be slow, so say so
+      // rather than leaving a dead button for a second.
+      ui.signinContinue.disabled = true
+      ui.signinContinue.textContent = 'Deriving…'
+      ui.signinError.hidden = true
+      try {
+        derived = await signIn(passphrase)
+        await showConfirmStep(derived)
+      } catch (err) {
+        ui.signinError.textContent = err.message
+        ui.signinError.hidden = false
+      } finally {
+        ui.signinContinue.disabled = false
+        ui.signinContinue.textContent = 'Continue'
+      }
+    }
+
+    const onUse = async () => {
+      if (!derived) return
+      useIdentity(derived, ui.signinLabel.value)
+
+      if (ui.signinRemember.checked) {
+        try {
+          await rememberKeyOnDevice(derived)
+        } catch (err) {
+          // Refusing to publish over this would be absurd: the key works, it
+          // just will not survive the reload.
+          console.warn('Spore: could not keep the key on this device:', err)
+        }
+      }
+
+      await showSignedIn(derived)
+      finish({ sign: true })
+    }
+
+    const onUseKnown = () => finish({ sign: true })
+    const onOther = () => showStep(ui.stepEnter, 'Sign with a different key')
+    const onBack = () => showStep(ui.stepEnter, 'Sign this site?')
+    const onSkip = () => finish({ sign: false })
+    const onCancel = () => finish(null)
+
+    // Esc closes a dialog without any button being pressed, and that is the
+    // same intent as Cancel: publish nothing.
+    const onClose = () => { cleanup(); resolve(null) }
+
+    ui.signinContinue.addEventListener('click', onContinue)
+    ui.signinUse.addEventListener('click', onUse)
+    ui.signinUseKnown.addEventListener('click', onUseKnown)
+    ui.signinOther.addEventListener('click', onOther)
+    ui.signinBack.addEventListener('click', onBack)
+    ui.signinSkip.addEventListener('click', onSkip)
+    ui.signinSkipKnown.addEventListener('click', onSkip)
+    ui.signinCancel.addEventListener('click', onCancel)
+    ui.signinDialog.addEventListener('close', onClose)
+
+    function cleanup () {
+      ui.signinContinue.removeEventListener('click', onContinue)
+      ui.signinUse.removeEventListener('click', onUse)
+      ui.signinUseKnown.removeEventListener('click', onUseKnown)
+      ui.signinOther.removeEventListener('click', onOther)
+      ui.signinBack.removeEventListener('click', onBack)
+      ui.signinSkip.removeEventListener('click', onSkip)
+      ui.signinSkipKnown.removeEventListener('click', onSkip)
+      ui.signinCancel.removeEventListener('click', onCancel)
+      ui.signinDialog.removeEventListener('close', onClose)
+    }
+  })
+}
+
+function showStep (step, title) {
+  for (const section of [ui.stepChoose, ui.stepEnter, ui.stepConfirm]) {
+    section.hidden = section !== step
+  }
+  ui.signinTitle.textContent = title
+  if (step === ui.stepEnter) ui.passphrase.focus()
+}
+
+async function showChooseStep (identity) {
+  const label = labelFor(identity.hex)
+  ui.knownAvatar.replaceChildren(await avatarNode(identity.publicKey))
+  ui.knownLabel.textContent = label ?? 'Your key'
+  ui.knownFingerprint.textContent = await fingerprint(identity.publicKey)
+  showStep(ui.stepChoose, 'Sign this site?')
+}
 
 /**
- * Signing in is deriving a key, not authenticating against anything.
+ * The step that does the actual work.
  *
- * There is no server to be wrong at, so every passphrase is "correct" and a
- * typo silently yields a different identity. The fingerprint shown afterwards
- * is the only check that exists, and it is the same check a reader uses on the
- * other end — which is the point of showing it in both places.
+ * There is no account to be wrong at, so a mistyped passphrase yields a
+ * different valid identity rather than an error, and nothing can detect that
+ * for you. Showing the key — large enough to recognise — is the only check
+ * that exists, and it is the same check a reader performs at the other end.
  */
-async function onSignIn () {
-  const passphrase = prompt(SIGNIN_PROMPT)
-  if (!passphrase) return
+async function showConfirmStep (derived) {
+  const known = knownKey(derived.hex)
+  ui.signinAvatar.replaceChildren(await avatarNode(derived.publicKey))
+  ui.signinFingerprint.textContent = await fingerprint(derived.publicKey)
 
-  busy('Deriving your key…')
-  try {
-    const { identity, known, lastSeq } = await signIn(passphrase)
-    await showSignedIn(identity, { known, lastSeq })
+  // A key already known here keeps the name it was given, whatever was typed
+  // into the field this time — renaming should be deliberate, not a side effect
+  // of a password manager filling in something else.
+  ui.signinRecognised.textContent = known
+    ? `Recognised — ${known.label ?? 'you have used this key here before'}`
+    : 'New to this browser'
+  ui.signinRecognised.className = known ? 'recognised' : 'recognised recognised--new'
 
-    if (!known) {
-      ui.notice.textContent =
-        `This browser has not published under ${await fingerprint(identity.publicKey)} before. ` +
-        'If you expected an existing key, check the passphrase — a typo produces ' +
-        'a different, equally valid identity rather than an error.'
-      ui.notice.className = 'notice'
-      ui.notice.hidden = false
-    }
-  } catch (err) {
-    fail(err)
-    return
-  }
-  ui.status.textContent = current ? ui.status.textContent : 'Nothing open'
-  ui.progress.textContent = ''
+  showStep(ui.stepConfirm, known ? 'Welcome back' : 'Is this your key?')
 }
 
-function onSignOut () {
-  signOut()
+async function onSignOut () {
+  await signOut()
   ui.signedIn.hidden = true
-  ui.signin.hidden = false
-  ui.notice.hidden = true
 }
 
-async function showSignedIn (identity, { known, lastSeq }) {
+async function showSignedIn (identity) {
+  const label = labelFor(identity.hex)
+  const last = lastPublished(identity.hex)
+
   ui.meAvatar.replaceChildren(await avatarNode(identity.publicKey))
-  ui.meName.textContent = 'Signing as'
+  ui.meName.textContent = label ? `Signing as ${label}` : 'Signing as'
   ui.meFingerprint.textContent = await fingerprint(identity.publicKey)
-  ui.meHistory.textContent = known
-    ? `Last published version ${lastSeq} from this browser. `
-    : 'Nothing published under this key from this browser yet. '
+  ui.meHistory.textContent = last
+    ? `Last published version ${last.seq} from this browser. `
+    : ''
   ui.signedIn.hidden = false
-  ui.signin.hidden = true
+}
+
+/**
+ * A key kept on this device comes back on load, so publishing needs no
+ * passphrase. Failing is unremarkable — nothing was kept, or storage is
+ * unavailable — and simply means the next publish asks.
+ */
+async function restoreIdentity () {
+  const identity = await restoreRememberedKey()
+  if (identity) await showSignedIn(identity)
 }
 
 /* -------------------------------------------------------------------------- */
@@ -895,16 +1052,32 @@ async function seed (files, name) {
   if (!ready) {
     return fail(new Error('Spore is still starting up. Try that again in a moment.'))
   }
+
+  // Checked before the publisher is asked anything. Being asked whether to
+  // sign a folder, and only then told it had no index.html, is a poor way to
+  // find out.
+  try {
+    checkPublishable(files)
+  } catch (err) {
+    return fail(err)
+  }
+
+  // Asked before anything is hashed, and before `busy()` — which hides the
+  // landing page, and with it the drop zone. A dialog raised over a hidden
+  // page would leave nothing to come back to if it were cancelled.
+  const decision = await askAboutSigning(name)
+  if (!decision) return
+
   busy(`Hashing ${files.length} file${files.length === 1 ? '' : 's'}…`)
   try {
-    const signed = withSporePub(files)
+    const signed = decision.sign ? withSporePub(files) : files
     const torrent = await publish(signed, name)
     const magnet = magnetFor(torrent.infoHash, torrent.name)
     showShareLink(magnet)
 
     // Announced before navigating: navigating replaces the site on screen, and
     // this has to happen whether or not the reader stays to watch it.
-    const successor = await announceSuccessor(torrent)
+    const successor = decision.sign ? await announceSuccessor(torrent) : null
 
     navigate(magnet)
     if (successor) showSuccessorNote(successor)

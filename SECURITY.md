@@ -156,6 +156,9 @@ is no longer trustworthy. What still holds:
 problem into a real boundary. That is a Phase 2 change because it means the gate
 is no longer one bundle on one hostname.
 
+This is also the reason the next section exists: anything a script can reach on
+this origin includes whatever Spore has stored there.
+
 ## The gate's own policy
 
 The gate declares its policy in a `<meta>` tag in `index.html`, because a static
@@ -217,6 +220,42 @@ there forever.
 
 The metadata (`.torrent`) is stored alongside the pieces, which is what lets a
 kept site come back without asking a peer for it first.
+
+## Keeping a publishing key on this device
+
+Signing is optional, asked once per publication, and by default the key exists
+only for as long as the passphrase sits in memory — it is derived, used, and
+never written anywhere. A publisher can choose to keep it, so that everything
+published from this browser is signed without retyping. That choice has a cost,
+and the gate states it before accepting.
+
+**What is stored is a non-extractable `CryptoKey`, not the passphrase and not
+the key bytes.** It is imported with `extractable: false` and put in IndexedDB
+by structured clone. The browser will sign with it and will not export it — not
+to us, not to a script, not to anything. So it cannot be copied out and used on
+another machine, and it cannot be exfiltrated and kept after the fact.
+
+**It can still be used, in place, by anything running on this origin.** That is
+not hypothetical here. The gate has to serve sites from its own origin — a
+service worker cannot reach an opaque one — so a site the reader has granted
+scripts to is same-origin with the gate and can reach its IndexedDB. Enabling
+scripts for a hostile site while a key is kept means that site can sign as the
+publisher for as long as it runs.
+
+What follows from that:
+
+- **There is no revocation.** A record signed while the key was reachable stays
+  validly signed forever. Ed25519 signatures do not expire and there is no
+  authority to complain to.
+- **Forgetting actually ends it.** Because the key cannot leave the browser,
+  deleting it is a real remedy rather than a gesture — unlike a stolen
+  passphrase, which is compromised permanently the moment it is read.
+- **The advice is specific**: do not keep a key in a browser where you enable
+  scripts for sites you do not trust. Those are the same two switches, and they
+  are dangerous together rather than apart.
+
+The second origin for content closes this the same way it closes the section
+above, and for the same reason.
 
 ## Reporting
 

@@ -308,6 +308,7 @@ async function run () {
   await checkUpdateOverTheWire()
   await checkUpdateOffer()
   await checkPublishingASuccessor()
+  await checkRememberedKey()
 }
 
 /**
@@ -393,6 +394,12 @@ async function checkPublishingByDrop (page) {
   check('a folder dropped on the drop zone is handled', handled.dropzone)
   check('a folder dropped anywhere else on the page is handled too, not opened by the browser',
     handled.body && handled.header, JSON.stringify(handled))
+
+  // Publishing now asks whether to sign first. This check is about the drop, so
+  // it answers the question the way a publisher in a hurry would.
+  await page.waitForFunction(
+    () => document.getElementById('signin-dialog').open, { timeout: 20_000 })
+  await page.click('#signin-skip')
 
   await page.waitForFunction(() => !document.getElementById('share').hidden, { timeout: 30_000 })
   const link = await page.$eval('#share-link', input => input.value)
@@ -777,21 +784,14 @@ async function checkUpdateOffer () {
  */
 async function checkPublishingASuccessor () {
   const publisher = await browser.createBrowserContext().then(c => c.newPage())
-  publisher.on('dialog', d => d.accept('correct horse battery staple hunter2'))
   await publisher.goto(origin + '/', { waitUntil: 'load' })
   await publisher.waitForFunction(
     () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
 
-  await publisher.click('#signin-open')
-  await publisher.waitForFunction(
-    () => !document.getElementById('signed-in').hidden, { timeout: 30_000 })
-  const shownFingerprint = await publisher.$eval('#me-fingerprint', el => el.textContent)
-  check('signing in shows the key it derived, not a name',
-    /^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/.test(shownFingerprint), shownFingerprint)
-
-  // The real input, with a real change event: this is the path that adds
-  // spore.pub and signs successors, and calling publish() directly skips it.
-  const dropFolder = async body => publisher.evaluate(async body => {
+  // The real input, with a real change event: this is the path that raises the
+  // signing question, adds spore.pub and signs successors. Calling publish()
+  // directly skips all of it.
+  const dropFolder = async body => publisher.evaluate(body => {
     const data = new DataTransfer()
     data.items.add(new File([body], 'index.html', { type: 'text/html' }))
     const input = document.getElementById('folder-input')
@@ -808,20 +808,65 @@ async function checkPublishingASuccessor () {
     return null
   }
 
+  // --- the question is asked before anything is hashed ----------------------
   await dropFolder('<h1>first</h1>')
+  await publisher.waitForFunction(
+    () => document.getElementById('signin-dialog').open, { timeout: 20_000 })
+  check('dropping a folder asks whether to sign it, before publishing anything',
+    await publisher.$eval('#signin-step-enter', el => !el.hidden))
+
+  // --- and backing out leaves a page you can still publish from -------------
+  // The bug this is here for: the dialog used to be raised after busy(), which
+  // hides the landing page, so cancelling — or signing in at all — left no drop
+  // zone and no way to publish anything ever again.
+  await publisher.click('#signin-cancel')
+  await wait(500)
+  check('cancelling leaves the landing page, and the way to publish, intact',
+    await publisher.evaluate(() => {
+      const welcome = document.getElementById('welcome')
+      return !welcome.hidden && getComputedStyle(welcome).display !== 'none' &&
+        !!document.getElementById('dropzone')
+    }))
+
+  // --- publish signed -------------------------------------------------------
+  await dropFolder('<h1>first</h1>')
+  await publisher.waitForFunction(
+    () => document.getElementById('signin-dialog').open, { timeout: 20_000 })
+  await publisher.type('#signin-label', 'my blog key')
+  await publisher.type('#signin-passphrase', 'correct horse battery staple hunter2')
+  await publisher.click('#signin-continue')
+  await publisher.waitForFunction(
+    () => !document.getElementById('signin-step-confirm').hidden, { timeout: 30_000 })
+
+  const shownFingerprint = await publisher.$eval('#signin-fingerprint', el => el.textContent)
+  check('the key is shown before anything is signed with it',
+    /^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/.test(shownFingerprint), shownFingerprint)
+  check('a key this browser has not seen is described plainly, not as an error',
+    /New to this browser/.test(
+      await publisher.$eval('#signin-recognised', el => el.textContent)))
+
+  await publisher.click('#signin-use')
+
   const first = await settled('')
   check('publishing while signed in yields a magnet', Boolean(first), String(first))
 
   const v1 = /btih:([0-9a-f]{40})/.exec(first ?? '')?.[1]
   const contents = await publisher.evaluate(async hash => {
     const { getClient } = await import('/js/swarm.js')
-    const torrent = await getClient().get(hash)
-    return torrent.files.map(f => f.path)
+    return (await getClient().get(hash)).files.map(f => f.path)
   }, v1)
   check('the published folder carries the signed-in key',
     contents.some(path => /(^|\/)spore\.pub$/.test(path)), JSON.stringify(contents))
 
+  // --- the second publish should not ask again ------------------------------
   await dropFolder('<h1>second, and different</h1>')
+  await publisher.waitForFunction(
+    () => document.getElementById('signin-dialog').open, { timeout: 20_000 })
+  const greeting = await publisher.$eval('#signin-known-label', el => el.textContent)
+  check('a key already in use is offered back by the name it was given',
+    /my blog key/.test(greeting), greeting)
+  await publisher.click('#signin-use-known')
+
   const second = await settled(first)
   const v2 = /btih:([0-9a-f]{40})/.exec(second ?? '')?.[1]
   check('publishing again yields a different site', Boolean(v2) && v2 !== v1, `${v1} → ${v2}`)
@@ -831,8 +876,23 @@ async function checkPublishingASuccessor () {
   check('the publisher is told the successor was signed and where it reaches',
     /Version 2 signed/.test(note), note.slice(0, 80))
 
-  // The proof: someone still on the first version, who was never told anything
-  // by us, hears about the second from the publisher's tab.
+  // --- unsigned publishing must still work ----------------------------------
+  await dropFolder('<h1>anonymous</h1>')
+  await publisher.waitForFunction(
+    () => document.getElementById('signin-dialog').open, { timeout: 20_000 })
+  await publisher.click('#signin-skip-known')
+  const third = await settled(second)
+  const v3 = /btih:([0-9a-f]{40})/.exec(third ?? '')?.[1]
+  const bare = await publisher.evaluate(async hash => {
+    const { getClient } = await import('/js/swarm.js')
+    return (await getClient().get(hash)).files.map(f => f.path)
+  }, v3)
+  check('publishing unsigned publishes no key at all',
+    Boolean(v3) && !bare.some(path => /spore\.pub$/.test(path)), JSON.stringify(bare))
+
+  // --- the proof ------------------------------------------------------------
+  // Someone still on the first version, who was never told anything by us,
+  // hears about the second from the publisher's tab.
   const reader = await browser.createBrowserContext().then(c => c.newPage())
   await reader.goto(origin + '/', { waitUntil: 'load' })
   await reader.waitForFunction(
@@ -848,6 +908,80 @@ async function checkPublishingASuccessor () {
   check('a reader on the first version is offered the second',
     offered && /Version 2/.test(detail), detail || 'no banner')
 }
+
+/**
+ * A key kept on this device, which is the convenient option and the risky one.
+ *
+ * What is stored is a non-extractable CryptoKey, so the check that matters is
+ * not "does it come back" but "does it come back *usable* without the
+ * passphrase" — and, just as much, does forgetting it actually forget it.
+ */
+async function checkRememberedKey () {
+  const page = await browser.createBrowserContext().then(c => c.newPage())
+  const ready = async () => page.waitForFunction(
+    () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+
+  await page.goto(origin + '/', { waitUntil: 'load' })
+  await ready()
+
+  await page.evaluate(() => {
+    const data = new DataTransfer()
+    data.items.add(new File(['<h1>kept key</h1>'], 'index.html', { type: 'text/html' }))
+    const input = document.getElementById('folder-input')
+    input.files = data.files
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await page.waitForFunction(
+    () => document.getElementById('signin-dialog').open, { timeout: 20_000 })
+  await page.type('#signin-label', 'kept on this device')
+  await page.type('#signin-passphrase', 'a different long phrase entirely')
+  await page.click('#signin-continue')
+  await page.waitForFunction(
+    () => !document.getElementById('signin-step-confirm').hidden, { timeout: 30_000 })
+
+  const expected = await page.$eval('#signin-fingerprint', el => el.textContent)
+  await page.click('#signin-remember')
+  await page.click('#signin-use')
+  await page.waitForFunction(
+    () => !document.getElementById('signed-in').hidden, { timeout: 30_000 })
+
+  // The whole point: a reload, and no passphrase.
+  await page.reload({ waitUntil: 'load' })
+  await ready()
+  await page.waitForFunction(
+    () => !document.getElementById('signed-in').hidden, { timeout: 30_000 }).catch(() => {})
+
+  const restored = await page.evaluate(() => ({
+    shown: !document.getElementById('signed-in').hidden,
+    fingerprint: document.getElementById('me-fingerprint').textContent,
+    name: document.getElementById('me-name').textContent
+  }))
+  check('a key kept on this device comes back after a reload, with no passphrase',
+    restored.shown && restored.fingerprint === expected, JSON.stringify(restored))
+  check('it comes back under the name it was given',
+    /kept on this device/.test(restored.name), restored.name)
+
+  // And it must still be able to sign, which a key that survived as bytes but
+  // not as a usable CryptoKey would not.
+  const signed = await page.evaluate(async () => {
+    const { me } = await import('/js/me.js')
+    const { signUpdate } = await import('/js/record.js')
+    const identity = me()
+    if (!identity) return 'no identity'
+    const record = await signUpdate(
+      identity.privateKey, identity.publicKey, 'a'.repeat(40), 1)
+    return record.sig.length
+  })
+  check('the restored key can still sign', signed === 64, String(signed))
+
+  await page.click('#signout')
+  await page.reload({ waitUntil: 'load' })
+  await ready()
+  await wait(1500)
+  check('forgetting it actually forgets it',
+    await page.$eval('#signed-in', el => el.hidden))
+}
+
 
 /**
  * The signing core: bencode, BEP 44 records, identities.

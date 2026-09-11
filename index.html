@@ -71,7 +71,7 @@
 -->
 <div id="update" class="update" hidden>
   <div class="update-who">
-    <span id="update-avatar" class="update-avatar" aria-hidden="true"></span>
+    <span id="update-avatar" class="avatar" aria-hidden="true"></span>
     <p class="update-text">
       <strong id="update-title">A newer version is available.</strong>
       <span id="update-detail" class="muted small"></span>
@@ -156,20 +156,17 @@
           without a key is a fine site; it simply can never be updated, because
           there is nobody it could accept a new version from.
         -->
-        <div id="signin" class="signin">
-          <p class="muted small">Publishing under a key lets you release a new
-             version later, and lets readers check it really came from you.
-             <button id="signin-open" type="button" class="link">Sign in with a
-             passphrase</button></p>
-        </div>
+        <p class="muted small">You will be asked, before it goes out, whether to
+           sign it — signing is what lets you release a new version later, and
+           lets readers check it really came from you.</p>
 
         <div id="signed-in" class="signed-in" hidden>
-          <span id="me-avatar" class="update-avatar" aria-hidden="true"></span>
+          <span id="me-avatar" class="avatar" aria-hidden="true"></span>
           <p class="muted small">
-            <strong id="me-name">Signed in</strong><br>
+            <strong id="me-name">Signing as</strong><br>
             <span id="me-fingerprint" class="fingerprint"></span><br>
             <span id="me-history"></span>
-            <button id="signout" type="button" class="link">Sign out</button>
+            <button id="signout" type="button" class="link">Forget this key</button>
           </p>
         </div>
       </section>
@@ -201,6 +198,114 @@
           title="Save this site's .torrent, to seed it from a server">Save .torrent</button>
   <button id="diagnose" type="button" class="link">Diagnostics</button>
 </footer>
+
+<!--
+  Asked at the moment it matters: a folder has been chosen and is about to
+  become a torrent. Signing is what makes a later version reachable from this
+  one, and that is a decision about *this* publication, not a login.
+
+  The confirm step is the real safeguard. There is no account to be wrong at —
+  every passphrase derives a valid key, so a typo yields a different identity
+  rather than an error. The only check that exists is whether the key looks
+  like the one you remember, so it is shown at a size you can compare.
+-->
+<dialog id="signin-dialog">
+  <h2 id="signin-title">Sign this site?</h2>
+
+  <section id="signin-step-choose" hidden>
+    <p class="muted small">Publishing <strong id="signin-what">this folder</strong>.</p>
+    <div class="identity-card">
+      <span id="signin-known-avatar" class="avatar avatar--large" aria-hidden="true"></span>
+      <div>
+        <p id="signin-known-label" class="recognised"></p>
+        <p id="signin-known-fingerprint" class="fingerprint"></p>
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button id="signin-other" type="button" class="link">Different key</button>
+      <button id="signin-skip-known" type="button" class="link">Publish unsigned</button>
+      <button id="signin-use-known" type="button">Sign with this key</button>
+    </div>
+  </section>
+
+  <!--
+    A real <form> with a named username field and a named password field, in
+    that order. Password managers do not recognise a lone password input: they
+    look for the shape of a login. Without it Bitwarden will not offer to fill
+    this, and a passphrase you cannot autofill is a passphrase you will mistype
+    — which here does not fail, it silently signs as somebody else.
+
+    Every button is type="button": submitting is not how this dialog advances.
+  -->
+  <section id="signin-step-enter" hidden>
+    <p class="muted small">Signing lets you publish a newer version later that
+       readers of this one will be offered. Without it this site is permanent
+       and unupdatable — which is a fine thing for it to be.</p>
+    <p class="muted small">Your passphrase <em>is</em> your key: it is turned
+       into one here, never stored and never sent. There is no account behind
+       it, so nobody can reset it and losing it loses the identity.</p>
+
+    <form id="signin-form" method="dialog" autocomplete="on">
+      <label class="field">
+        <span class="field-label">Key name</span>
+        <input id="signin-label" name="username" type="text" autocomplete="username"
+               spellcheck="false" autocapitalize="off" placeholder="my blog key">
+      </label>
+      <p class="muted small">Private to this browser — it is what your password
+         manager files this under, and how Spore greets you next time. Readers
+         never see it.</p>
+
+      <label class="field">
+        <span class="field-label">Passphrase</span>
+        <input id="signin-passphrase" name="password" type="password"
+               autocomplete="current-password" spellcheck="false" autocapitalize="off"
+               placeholder="a long phrase only you know">
+      </label>
+      <label class="reveal">
+        <input id="signin-reveal" type="checkbox">
+        <span>Show it</span>
+      </label>
+
+      <p id="signin-error" class="signin-error" hidden></p>
+
+      <div class="dialog-actions">
+        <button id="signin-cancel" type="button" class="link">Cancel</button>
+        <button id="signin-skip" type="button" class="link">Publish unsigned</button>
+        <button id="signin-continue" type="button">Continue</button>
+      </div>
+    </form>
+  </section>
+
+  <section id="signin-step-confirm" hidden>
+    <div class="identity-card">
+      <span id="signin-avatar" class="avatar avatar--large" aria-hidden="true"></span>
+      <div>
+        <p id="signin-recognised" class="recognised"></p>
+        <p id="signin-fingerprint" class="fingerprint"></p>
+      </div>
+    </div>
+
+    <p class="muted small">The picture and the fingerprint both come from the key
+       itself, so a mistyped passphrase produces a visibly different one.
+       Compare it to what you saw last time.</p>
+
+    <label class="reveal remember">
+      <input id="signin-remember" type="checkbox">
+      <span>Keep this key on this device, and sign everything I publish</span>
+    </label>
+    <p class="muted small">Your passphrase is never stored — the key itself is,
+       in a form the browser will sign with but will not hand back, so it cannot
+       be copied out. It can still be <em>used</em> by anything running on
+       Spore's origin, which includes a site you grant scripts to. There is no
+       revocation. <button id="signin-risk" type="button" class="link">What this
+       risks</button></p>
+
+    <div class="dialog-actions">
+      <button id="signin-back" type="button" class="link">Back</button>
+      <button id="signin-use" type="button">Sign and publish</button>
+    </div>
+  </section>
+</dialog>
 
 <dialog id="diagnostics">
   <h2>Diagnostics</h2>

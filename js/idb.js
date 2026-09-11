@@ -7,15 +7,20 @@
  *           metadata, so it can be re-added with no peer to ask, plus enough
  *           to list it in the UI.
  *   chunks  the pieces themselves, keyed by [infoHash, index].
+ *   keys    at most one publishing key, if the publisher asked for it to be
+ *           remembered. What is stored is a non-extractable `CryptoKey`, not a
+ *           passphrase and not key bytes: the browser will sign with it and
+ *           will not hand it back, to us or to anyone else. See `js/me.js`.
  *
  * Nothing lands here unless the reader asked for it. See `js/keep.js` for the
  * decision and SECURITY.md for what keeping a site costs.
  */
 
 const DB_NAME = 'spore'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const SITES = 'sites'
 const CHUNKS = 'chunks'
+const KEYS = 'keys'
 
 let dbPromise = null
 
@@ -47,6 +52,7 @@ export function openDatabase () {
       const db = request.result
       if (!db.objectStoreNames.contains(SITES)) db.createObjectStore(SITES, { keyPath: 'infoHash' })
       if (!db.objectStoreNames.contains(CHUNKS)) db.createObjectStore(CHUNKS, { keyPath: ['infoHash', 'index'] })
+      if (!db.objectStoreNames.contains(KEYS)) db.createObjectStore(KEYS, { keyPath: 'id' })
     }
     request.onsuccess = () => settle(resolve)(request.result)
     request.onerror = () => settle(reject)(request.error)
@@ -214,3 +220,30 @@ function nextTick (cb, ...args) {
 }
 
 function noop () {}
+
+/* -------------------------------------------------------------------------- */
+/* The remembered publishing key                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One key, under a fixed id. Structured clone stores the `CryptoKey` itself;
+ * because it was imported non-extractable, nothing can read the private bytes
+ * back out of the database — not this code, not a script that gets into this
+ * origin. It can be used, and it can be deleted. It cannot be copied.
+ */
+const KEY_ID = 'publishing-key'
+
+export async function putKey (record) {
+  const db = await openDatabase()
+  await transact(db, [KEYS], 'readwrite', tx => tx.objectStore(KEYS).put({ id: KEY_ID, ...record }))
+}
+
+export async function getKey () {
+  const db = await openDatabase()
+  return await request(db.transaction(KEYS).objectStore(KEYS).get(KEY_ID))
+}
+
+export async function deleteKey () {
+  const db = await openDatabase()
+  await transact(db, [KEYS], 'readwrite', tx => tx.objectStore(KEYS).delete(KEY_ID))
+}

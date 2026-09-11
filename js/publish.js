@@ -54,12 +54,25 @@ export function filesFromInput (input) {
  * @returns {Promise<import('webtorrent').Torrent>}
  */
 export async function publish (files, name) {
+  checkPublishable(files)
+  return await seedTorrent(files, { name: name ?? undefined })
+}
+
+/**
+ * Refuse early rather than hand back a magnet that renders nothing.
+ *
+ * Separate from `publish` because the gate asks the publisher a question —
+ * whether to sign this — between choosing a folder and seeding it, and being
+ * asked to sign something that was never publishable is a poor way to find out
+ * it was empty.
+ *
+ * @throws {Error} with a message meant to be read by whoever dropped the folder
+ */
+export function checkPublishable (files) {
   if (files.length === 0) throw new Error('That folder is empty.')
   if (!files.some(file => /(^|\/)index\.html?$/i.test(file.fullPath || file.name))) {
-    // Refuse early rather than hand back a magnet that renders nothing.
     throw new Error('A site needs an index.html in its top folder.')
   }
-  return await seedTorrent(files, { name: name ?? undefined })
 }
 
 async function collect (entry, out, prefix = '') {

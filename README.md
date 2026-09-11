@@ -131,12 +131,32 @@ link have no way to learn the new one.
 
 Signing fixes the continuity without giving up the verification.
 
-**Sign in with a passphrase** before publishing. The passphrase *is* the key —
-it is derived, never stored, never sent, and there is nothing to back up and
-nobody who can reset it. Your folder then gets a `spore.pub` naming your public
-key, so the site says who it belongs to.
+**Drop your folder, and Spore asks whether to sign it** before anything is
+hashed. Signing is a decision about that publication, not a login: a site
+published without a key is a perfectly good site that simply can never be
+updated.
 
-Publish again later, from the same passphrase, and Spore signs a small record
+Say yes and you give a key name and a passphrase. The passphrase *is* the key —
+it is derived here, never stored, never sent, and there is nothing to back up
+and nobody who can reset it. Spore then shows you the key it derived, as a
+picture and a fingerprint, before signing anything with it. That step is the
+only check that exists: there is no account to be wrong at, so a mistyped
+passphrase produces a *different valid identity* rather than an error. Compare
+it to what you saw last time; the second time on the same browser it greets you
+by the name you gave it.
+
+Your folder then gets a `spore.pub` naming your public key, so the site says who
+it belongs to.
+
+You can tick **keep this key on this device** to stop retyping. What gets stored
+is the key itself in a form the browser will sign with but will not hand back —
+not your passphrase — so it cannot be copied out. It can still be *used* by
+anything running on Spore's origin, which includes a site you grant scripts to,
+and there is no revocation. Don't do it in a browser where you enable scripts
+for sites you don't trust. The full reasoning is in
+[SECURITY.md](SECURITY.md#keeping-a-publishing-key-on-this-device).
+
+Publish again later, from the same key, and Spore signs a small record
 saying "version *n* of this key is at *this* infohash" and offers it to peers
 still on the old version. A reader there sees:
 
