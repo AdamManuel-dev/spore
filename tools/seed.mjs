@@ -101,6 +101,7 @@ const claimedName = setting('SPORE_NAME', null)
 const statusPort = Number(setting('SPORE_STATUS_PORT', '8081'))
 const watchSeconds = Number(setting('SPORE_WATCH_SECONDS', '30'))
 const keepVersions = Math.max(1, Number(setting('SPORE_KEEP_VERSIONS', '10')))
+const announceSeconds = Math.max(15, Number(setting('SPORE_ANNOUNCE_SECONDS', '60')))
 
 // Never a flag. An argument shows up in `docker inspect`, in `ps` output, and
 // in the shell history of whoever started it; an environment variable at least
@@ -222,6 +223,15 @@ const seeding = new Map()
 /** Watchers offering the newest record on older swarms; held so they live. */
 const announcing = []
 
+// Declared with the rest of the module state, not beside the functions that
+// use them: `startAnnouncing()` runs near the top of the file, and a `let`
+// declared further down is in its temporal dead zone — a ReferenceError at
+// startup rather than an undefined. The container caught it; reading did not.
+/** When we last asked the trackers to introduce us, and when one last replied. */
+let lastAnnounceAt = null
+let lastTrackerReplyAt = null
+let lastAnnounceError = null
+
 await restoreVersions()
 await checkForNewVersion({ firstRun: true })
 
@@ -234,6 +244,7 @@ report()
 startStatusServer()
 startHeartbeat()
 startWatching()
+startAnnouncing()
 
 process.on('SIGINT', () => {
   console.log('\nStopping.')
@@ -288,6 +299,7 @@ async function restoreVersions () {
       continue
     }
     seeding.set(torrent.infoHash, torrent)
+    watchTrackerReplies(torrent)
     alive.push(version)
   }
   versions = alive
@@ -351,11 +363,12 @@ async function checkForNewVersion ({ firstRun = false } = {}) {
   }
 
   seeding.set(torrent.infoHash, torrent)
+  watchTrackerReplies(torrent)
   versions.push({ seq, infoHash: torrent.infoHash, dir: staging, createdAt: seq })
   await saveState()
 
   if (!firstRun) {
-    console.log(`\n${new Date().toISOString().slice(0, 19)}  the folder changed — ` +
+    console.log(`\n${new Date().toISOString().slice(0, 19)}Z  the folder changed — ` +
       `published ${torrent.infoHash}`)
     console.log(`  ${magnetFor(torrent)}`)
   }
@@ -489,7 +502,60 @@ function report () {
     console.log('Nobody will be told about the newer versions: without a passphrase\n' +
       'there is no key to sign a successor with.\n')
   }
-  console.log('Leave this running. Ctrl+C stops seeding.\n')
+  console.log(`Clock: ${new Date().toISOString()} (UTC — versions are numbered by it, ` +
+  'so a server whose clock is genuinely wrong will number them wrong).')
+console.log('Leave this running. Ctrl+C stops seeding.\n')
+}
+
+/**
+ * Keep announcing, or quietly stop being findable.
+ *
+ * A WebRTC tracker is a matchmaker, not a peer list. Announcing deposits a
+ * batch of SDP offers; the tracker parks them and hands one to each peer that
+ * turns up. They are consumed, and they expire. A seeder that announces once
+ * and then waits for the tracker's suggested interval — 120 seconds, in
+ * practice — runs its pool down and becomes impossible to introduce, while
+ * staying connected and reporting itself perfectly healthy.
+ *
+ * Measured, not assumed: a seeder left alone was reachable at 5, 10 and 15
+ * minutes and gave a 404 at 20, with uploads flatlining and every log line
+ * still saying it was fine. That is the worst shape a failure can have.
+ *
+ * Announcing more often than the tracker asks is the point, so the floor is
+ * 15s to keep this from being turned into something abusive.
+ */
+function startAnnouncing () {
+  const announce = () => {
+    for (const torrent of seeding.values()) {
+      try {
+        torrent.discovery?.tracker?.update()
+      } catch (err) {
+        // A tracker that will not take an announce is not fatal — the peers
+        // already known stay connected — but it is why nobody new arrives.
+        lastAnnounceError = err.message
+      }
+    }
+    lastAnnounceAt = Date.now()
+  }
+
+  announce()
+  setInterval(announce, announceSeconds * 1000).unref?.()
+  console.log(`Re-announcing every ${announceSeconds}s, so the trackers keep ` +
+    'offers to introduce readers with.\n')
+}
+
+/**
+ * A tracker answering is the only evidence available that this seeder is
+ * findable at all. Peer counts cannot tell "nobody wants it" from "nobody can
+ * find it", which is the distinction that matters when a site goes quiet.
+ */
+function watchTrackerReplies (torrent) {
+  try {
+    torrent.discovery?.tracker?.on('update', () => { lastTrackerReplyAt = Date.now() })
+  } catch {
+    // Older or stubbed tracker clients simply do not report; the status
+    // endpoint then says "unknown" rather than lying.
+  }
 }
 
 function startHeartbeat () {
@@ -508,10 +574,22 @@ function heartbeat () {
   const peers = [...seeding.values()].reduce((n, t) => n + t.numPeers, 0)
   const uploaded = [...seeding.values()].reduce((n, t) => n + t.uploaded, 0)
   const incomplete = [...seeding.values()].filter(t => t.progress < 1).length
-  return `${new Date().toISOString().slice(11, 19)}  ` +
+
+  // Marked UTC, because it is. A container with no TZ logs in UTC while the
+  // person reading the logs is somewhere else, and an unlabelled clock two
+  // hours off their own reads as a broken server — which sends them looking
+  // for a fault that is not there.
+  return `${new Date().toISOString().slice(11, 19)}Z ` +
     `${versions.length} version${versions.length === 1 ? '' : 's'}  ` +
     `${peers} peer${peers === 1 ? '' : 's'}  ↑ ${format(uploaded)}` +
-    (incomplete ? `  INCOMPLETE ${incomplete} — serving nothing for those` : '')
+    (incomplete ? `  INCOMPLETE ${incomplete} — serving nothing for those` : '') +
+    (trackersSilent() ? '  NO TRACKER REPLY — readers cannot be introduced' : '')
+}
+
+/** No tracker has answered for several announce cycles: nobody can find us. */
+function trackersSilent () {
+  if (!lastTrackerReplyAt) return Date.now() - startedAt > announceSeconds * 3000
+  return Date.now() - lastTrackerReplyAt > announceSeconds * 3000
 }
 
 /**
@@ -534,6 +612,13 @@ function status () {
     peers: [...seeding.values()].reduce((n, t) => n + t.numPeers, 0),
     uploaded: [...seeding.values()].reduce((n, t) => n + t.uploaded, 0),
     uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+    // Whether this seeder can still be *found*, which peer counts cannot say.
+    lastAnnounceAt: lastAnnounceAt ? new Date(lastAnnounceAt).toISOString() : null,
+    lastTrackerReplyAt: lastTrackerReplyAt ? new Date(lastTrackerReplyAt).toISOString() : null,
+    trackerSilentSeconds: lastTrackerReplyAt
+      ? Math.round((Date.now() - lastTrackerReplyAt) / 1000)
+      : null,
+    lastAnnounceError,
     versions: versions.map(version => {
       const torrent = seeding.get(version.infoHash)
       return {
