@@ -122,7 +122,6 @@ const ui = {
   signinRecognised: el('signin-recognised'),
   signinFingerprint: el('signin-fingerprint'),
   signinLabel: el('signin-label'),
-  signinPublicName: el('signin-public-name'),
   signinRemember: el('signin-remember'),
   signinDismiss: el('signin-dismiss'),
   signinRisk: el('signin-risk'),
@@ -416,7 +415,6 @@ function askAboutSigning (what) {
   // reads as "this was not saved".
   const recent = mostRecentKey()
   ui.signinLabel.value = recent?.label ?? ''
-  ui.signinPublicName.value = recent?.publicName ?? ''
   ui.reveal.checked = false
   ui.passphrase.type = 'password'
   ui.signinError.hidden = true
@@ -471,10 +469,7 @@ function askAboutSigning (what) {
     // a new page being announced as the successor to an old blog.
     const onConfirmed = async () => {
       if (!derived) return
-      useIdentity(derived, {
-        label: ui.signinLabel.value,
-        publicName: ui.signinPublicName.value
-      })
+      useIdentity(derived, ui.signinLabel.value)
 
       if (ui.signinRemember.checked) {
         try {
@@ -617,7 +612,6 @@ async function showConfirmStep (derived) {
   // The prefill was a guess from the most recent key; now the key is known, use
   // what was actually stored for it.
   if (known?.label) ui.signinLabel.value = known.label
-  if (known?.publicName) ui.signinPublicName.value = known.publicName
 
   showStep(ui.stepConfirm, known ? 'Welcome back' : 'Is this your key?')
 }

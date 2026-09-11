@@ -48,9 +48,9 @@ export async function signIn (passphrase) {
  * first and only gets here if they recognised it. Deriving is not a decision;
  * this is.
  */
-export function useIdentity (derived, names) {
+export function useIdentity (derived, label) {
   identity = derived
-  rememberMyKey(derived.hex, names)
+  rememberMyKey(derived.hex, label)
   return { label: labelFor(derived.hex) }
 }
 
@@ -141,8 +141,7 @@ export async function isRemembered () {
  * which makes it noise. Remembering the key instead turns the second sign-in
  * into recognition: the name comes back, or it does not.
  *
- * @returns {Record<string, {label: string|null, publicName: string|null,
- *                            firstSeen: number, lastUsedAt: number}>}
+ * @returns {Record<string, {label: string|null, firstSeen: number, lastUsedAt: number}>}
  */
 function myKeys () {
   try {
@@ -162,9 +161,19 @@ export function labelFor (keyHex) {
   return myKeys()[keyHex]?.label ?? null
 }
 
-/** What this key tells readers it is called, if the publisher gave it a name. */
+/**
+ * What this key tells readers it is called.
+ *
+ * The same name the publisher gave it here, deliberately. Two fields — one
+ * private label and one public claim — was one too many: the private one came
+ * first, so that is what got filled in, and every site went out declaring
+ * nothing while its publisher believed they had given it a name.
+ *
+ * One name, stated to be public at the point it is typed. Publishing under no
+ * name at all stays available by leaving it blank.
+ */
 export function publicNameFor (keyHex) {
-  return myKeys()[keyHex]?.publicName ?? null
+  return myKeys()[keyHex]?.label ?? null
 }
 
 /**
@@ -186,13 +195,12 @@ export function mostRecentKey () {
  * empty field, or a publisher who simply did not retype, must not silently
  * erase a name that is doing useful work.
  */
-export function rememberMyKey (keyHex, { label, publicName } = {}) {
+export function rememberMyKey (keyHex, label) {
   const keys = myKeys()
-  const clean = value => (typeof value === 'string' ? value.trim() : '')
+  const trimmed = typeof label === 'string' ? label.trim() : ''
 
   keys[keyHex] = {
-    label: clean(label) || keys[keyHex]?.label || null,
-    publicName: clean(publicName) || keys[keyHex]?.publicName || null,
+    label: trimmed || keys[keyHex]?.label || null,
     firstSeen: keys[keyHex]?.firstSeen ?? Date.now(),
     lastUsedAt: Date.now()
   }

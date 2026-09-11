@@ -283,13 +283,16 @@
 
     <form id="signin-form" method="dialog" autocomplete="on">
       <label class="field">
-        <span class="field-label">Key name</span>
+        <span class="field-label">Your name</span>
         <input id="signin-label" name="username" type="text" autocomplete="username"
-               spellcheck="false" autocapitalize="off" placeholder="my blog key">
+               spellcheck="false" autocapitalize="off" placeholder="dangerblack">
       </label>
-      <p class="muted small">Private to this browser — it is what your password
-         manager files this under, and how Spore greets you next time. Readers
-         never see it.</p>
+      <p class="muted small"><strong>Readers see this.</strong> It goes in the
+         site's <code>spore.pub</code> as the name this key claims for itself —
+         anyone can claim any name, so readers are shown it as a claim and the
+         fingerprint is what actually identifies you. It is also what your
+         password manager files this under. Leave it blank to publish under the
+         key alone.</p>
 
       <label class="field">
         <span class="field-label">Passphrase</span>
@@ -324,21 +327,6 @@
     <p class="muted small">The picture and the fingerprint both come from the key
        itself, so a mistyped passphrase produces a visibly different one.
        Compare it to what you saw last time.</p>
-
-    <!--
-      What readers see. Distinct from the key name above, which never leaves
-      this browser: this one is written into the site's spore.pub, so it is a
-      claim the key makes about itself in public. Optional, because a key with
-      no name is honest — a fingerprint is still an identity.
-    -->
-    <label class="field">
-      <span class="field-label">Name readers see (optional)</span>
-      <input id="signin-public-name" type="text" spellcheck="false"
-             placeholder="Lara from work">
-    </label>
-    <p class="muted small">Goes in the site's <code>spore.pub</code>. Anyone can
-       claim any name, and readers are shown it as a claim — the fingerprint is
-       the part that cannot be copied.</p>
 
     <label class="reveal remember">
       <input id="signin-remember" type="checkbox">

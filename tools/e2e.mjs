@@ -843,7 +843,7 @@ async function checkPublishingASuccessor () {
   await dropFolder('<h1>first</h1>')
   await publisher.waitForFunction(
     () => document.getElementById('signin-dialog').open, { timeout: 20_000 })
-  await publisher.type('#signin-label', 'my blog key')
+  await publisher.type('#signin-label', 'Lara from work')
   await publisher.type('#signin-passphrase', 'correct horse battery staple hunter2')
   await publisher.click('#signin-continue')
   await publisher.waitForFunction(
@@ -856,7 +856,6 @@ async function checkPublishingASuccessor () {
     /New to this browser/.test(
       await publisher.$eval('#signin-recognised', el => el.textContent)))
 
-  await publisher.type('#signin-public-name', 'Lara from work')
   await publisher.click('#signin-use')
 
   // Confirming the key does not publish: which site this is comes next.
@@ -882,8 +881,17 @@ async function checkPublishingASuccessor () {
   await publisher.waitForFunction(
     () => document.getElementById('signin-dialog').open, { timeout: 20_000 })
   const greeting = await publisher.$eval('#signin-known-label', el => el.textContent)
+  const declared = await publisher.evaluate(async hash => {
+    const { getClient } = await import('/js/swarm.js')
+    const torrent = await getClient().get(hash)
+    const file = torrent.files.find(f => /spore\.pub$/.test(f.path))
+    return new TextDecoder().decode(new Uint8Array(await file.arrayBuffer()))
+  }, v1)
+  check('the name the publisher gave is the name the site declares',
+    /\nname=Lara from work\n/.test(declared), JSON.stringify(declared))
+
   check('a key already in use is offered back by the name it was given',
-    /my blog key/.test(greeting), greeting)
+    /Lara from work/.test(greeting), greeting)
   const offeredSeries = await publisher.$$eval('#signin-series option', els =>
     els.map(el => el.textContent))
   check('a site already published is offered as something to update',

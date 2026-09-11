@@ -136,7 +136,10 @@ hashed. Signing is a decision about that publication, not a login: a site
 published without a key is a perfectly good site that simply can never be
 updated.
 
-Say yes and you give a key name and a passphrase. The passphrase *is* the key —
+Say yes and you give a name and a passphrase. **The name is what readers see** —
+it goes into the site's `spore.pub` as the name your key claims for itself, and
+it is what your password manager files the passphrase under. Leave it blank to
+publish under the key alone. The passphrase *is* the key —
 it is derived here, never stored, never sent, and there is nothing to back up
 and nobody who can reset it. Spore then shows you the key it derived, as a
 picture and a fingerprint, before signing anything with it. That step is the
