@@ -310,6 +310,7 @@ async function run () {
   await checkPublishingASuccessor()
   await checkRememberedKey()
   await checkSlowSwarm()
+  await checkMobileLayout()
 }
 
 /**
@@ -1021,6 +1022,96 @@ async function checkPublishingASuccessor () {
   const stillOnBlog = await reader.evaluate(() => location.hash)
   check('a second site under the same key does not replace the first',
     still === detail && stillOnBlog.includes(v1), `${still.slice(0, 60)} | ${stillOnBlog.slice(0, 30)}`)
+}
+
+/**
+ * The gate has to work on a phone, which nothing here checked until it did not.
+ *
+ * Reported as "page slides on the right, modals do not fit". Both were real: a
+ * status bar that had quietly grown to seven items was 477px of content in a
+ * 390px window and dragged the whole document sideways, and the dialogs were
+ * sized in rem with no gutter and no height limit, so on a small screen they
+ * touched both edges and ran off the bottom.
+ *
+ * Checked at three real widths rather than one, because 320 is where rem-sized
+ * boxes stop fitting and 390 is not.
+ */
+async function checkMobileLayout () {
+  for (const phone of [
+    { width: 320, height: 568, name: 'small phone' },
+    { width: 390, height: 844, name: 'typical phone' }
+  ]) {
+    const page = await browser.createBrowserContext().then(c => c.newPage())
+    await page.setViewport({ ...phone, isMobile: true, hasTouch: true, deviceScaleFactor: 2 })
+    await page.goto(origin + '/', { waitUntil: 'load' })
+    await page.waitForFunction(
+      () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+
+    // With a site open, so the status bar carries everything it ever carries.
+    const magnet = await page.evaluate(async () => {
+      const { publish } = await import('/js/publish.js')
+      const index = new File(['<h1>phone</h1>'], 'index.html', { type: 'text/html' })
+      index.fullPath = 'phone/index.html'
+      const style = new File(['body{color:#222}'], 'style.css', { type: 'text/css' })
+      style.fullPath = 'phone/style.css'
+      return (await publish([index, style], 'phone')).magnetURI
+    })
+    await page.evaluate(m => { location.hash = m }, magnet)
+    await page.waitForFunction(
+      () => !document.getElementById('viewer').hidden, { timeout: 30_000 })
+    await page.click('#share-open')
+    await wait(400)
+
+    const spill = await page.evaluate(() => {
+      const width = document.documentElement.clientWidth
+      const over = []
+      for (const el of document.querySelectorAll('body *')) {
+        const box = el.getBoundingClientRect()
+        if (box.width === 0 && box.height === 0) continue
+        if (box.right > width + 1 || box.left < -1) {
+          over.push(el.id || el.tagName.toLowerCase())
+        }
+      }
+      return { scroll: document.documentElement.scrollWidth, width, over: over.slice(0, 5) }
+    })
+    check(`nothing spills off the side of a ${phone.name}`,
+      spill.scroll <= spill.width, JSON.stringify(spill))
+
+    // Every dialog: inside the screen, with a gutter, and scrollable to its
+    // buttons rather than running off the bottom.
+    for (const id of ['signin-dialog', 'author-dialog', 'diagnostics']) {
+      const fit = await page.evaluate(dialogId => {
+        if (dialogId === 'signin-dialog') {
+          document.getElementById('signin-step-enter').hidden = false
+        }
+        const dialog = document.getElementById(dialogId)
+        dialog.showModal()
+        dialog.scrollTop = dialog.scrollHeight
+
+        const box = dialog.getBoundingClientRect()
+        const width = document.documentElement.clientWidth
+        const height = document.documentElement.clientHeight
+        // The visible step's buttons. signin-dialog carries one .dialog-actions
+        // per step and only one is shown; measuring the first in DOM order
+        // measures a hidden one, which is never "reachable".
+        const shown = [...dialog.querySelectorAll('.dialog-actions')]
+          .find(row => row.getBoundingClientRect().height > 0)
+        const last = shown.querySelector('button:last-child')
+        const lastBox = last.getBoundingClientRect()
+        dialog.close()
+
+        return {
+          gutter: Math.round(box.left) > 0 && Math.round(box.right) < width,
+          withinHeight: box.height <= height + 1,
+          lastButtonReachable: lastBox.bottom <= box.bottom + 1 && lastBox.top >= box.top - 1,
+          box: `${Math.round(box.left)},${Math.round(box.width)}x${Math.round(box.height)}`
+        }
+      }, id)
+      check(`${id} fits a ${phone.name}, with its buttons reachable`,
+        fit.gutter && fit.withinHeight && fit.lastButtonReachable, JSON.stringify(fit))
+    }
+    await page.close()
+  }
 }
 
 /**

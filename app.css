@@ -243,6 +243,7 @@ button:hover, .button:hover { border-color: var(--accent); }
 #signin-dialog {
   max-width: 30rem;
   padding: 24px;
+  width: calc(100% - 2rem);
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--panel);
@@ -335,6 +336,7 @@ button:hover, .button:hover { border-color: var(--accent); }
 #author-dialog {
   max-width: 32rem;
   padding: 24px;
+  width: calc(100% - 2rem);
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--panel);
@@ -438,7 +440,13 @@ code { font-family: var(--mono); }
 .statusbar {
   flex: none;
   display: flex;
-  gap: 18px;
+  /* Wraps, because this row grew: site name, author, peers, progress, Share,
+     Save .torrent and Diagnostics. On a phone that is 477px of content in a
+     390px window, and without wrapping it pushed the whole document sideways
+     — the page could be dragged right, with the buttons off-screen. */
+  flex-wrap: wrap;
+  column-gap: 18px;
+  row-gap: 2px;
   padding: 6px 14px;
   background: var(--panel);
   border-top: 1px solid var(--line);
@@ -448,6 +456,7 @@ code { font-family: var(--mono); }
 
 .statusbar span:first-child {
   flex: 1;
+  min-width: 0;             /* or the ellipsis never triggers inside a flex row */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -554,6 +563,7 @@ body.is-dragging .drop-overlay { display: flex; }
 #diagnostics {
   max-width: 34rem;
   padding: 24px;
+  width: calc(100% - 2rem);
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--panel);
@@ -601,9 +611,37 @@ body.is-dragging .drop-overlay { display: flex; }
 
 .dialog-actions {
   display: flex;
+  flex-wrap: wrap;          /* three buttons do not fit a phone in one row */
   gap: 8px;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+/* --- phones -------------------------------------------------------------- */
+
+/* Everything above is written for a window with room to spare. These are the
+   places where that assumption showed: a status bar wide enough to drag the
+   page sideways, and dialogs sized in rem that a small screen cannot honour. */
+@media (max-width: 560px) {
+  .statusbar { column-gap: 12px; }
+
+  /* The site's name gets its own line, so the controls beside it stay
+     reachable instead of being pushed past the edge. */
+  .statusbar > span:first-child { flex-basis: 100%; }
+
+  .dialog-actions { justify-content: stretch; }
+  .dialog-actions button { flex: 1; }
+  .dialog-actions button.link { flex: 0 0 auto; }
+}
+
+/* A dialog taller than the window is unusable: on a phone the on-screen
+   keyboard takes half of it, and the buttons end up below the fold with no way
+   to scroll to them. Every dialog scrolls its own content instead. */
+#signin-dialog,
+#author-dialog,
+#diagnostics {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
 }
 
 /* --- the missing-site page ---------------------------------------------- */
