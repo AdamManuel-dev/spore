@@ -22,14 +22,36 @@ export const DEFAULT_TRACKERS = [
 export const TORRENT_PATH = 'webtorrent'
 
 /**
- * Give up waiting for a torrent's metadata after this long.
+ * How long to wait for a torrent's metadata, expressed as two clocks.
  *
- * A live swarm answers in a few seconds; the old minute meant a reader staring
- * at a spinner long past the point of drawing their own conclusion, and most
- * never saw the page that was waiting to explain it. Thirty seconds is still
- * generous, and giving up is not destructive — "Try again" rejoins.
+ * A single deadline was wrong, and wrong in a way that made live sites look
+ * dead. A browser cannot dial a peer: it meets whoever a tracker introduces it
+ * to, by brokering WebRTC offers between whoever happens to be announcing at
+ * the same moment. So a reader can spend the entire budget connected to a peer
+ * that has nothing — another reader who has also just arrived, most easily —
+ * while the seeder sits there perfectly healthy, waiting to be introduced on a
+ * later announce that never gets a chance to happen. Observed exactly that way:
+ * one useless peer, thirty seconds, "This site could not be found", and the
+ * seeder's own log showing it up the whole time.
+ *
+ * So: QUIET is how long to tolerate nothing new happening before asking the
+ * trackers for a different set of peers, and DEADLINE caps the whole attempt.
+ * A swarm that has produced no peer at all is still abandoned early — that is
+ * the ordinary shape of a site nobody is seeding, and making its 404 slow to
+ * arrive helps no one.
  */
-export const METADATA_TIMEOUT_MS = 30_000
+export const METADATA_QUIET_MS = 15_000
+export const METADATA_DEADLINE_MS = 60_000
+
+/**
+ * How long to wait when nobody has answered at all.
+ *
+ * Deliberately the same as the old single timeout, so the ordinary "nobody is
+ * seeding this" case reports just as promptly as it always did. Only a swarm
+ * that has produced at least one peer earns the longer deadline, because only
+ * then is there something to be introduced to.
+ */
+export const METADATA_SILENT_MS = 30_000
 
 /**
  * The version of `sw.js` this bundle expects to be talking to. Bump both

@@ -9,7 +9,9 @@
 // The vendored bundle is an ES module, so it is imported like our own code
 // rather than dropped on `window` by a classic <script>.
 import WebTorrent from '../vendor/webtorrent.min.js'
-import { DEFAULT_TRACKERS, METADATA_TIMEOUT_MS } from './config.js'
+import {
+  DEFAULT_TRACKERS, METADATA_DEADLINE_MS, METADATA_QUIET_MS, METADATA_SILENT_MS
+} from './config.js'
 
 /** How long to wait for the worker to claim this page before carrying on. */
 const CONTROLLER_TIMEOUT_MS = 3000
@@ -213,24 +215,75 @@ export class SiteNotFound extends Error {
   }
 }
 
+/**
+ * Wait for metadata, giving the swarm more than one chance to provide it.
+ *
+ * Two things make a single timeout the wrong shape here. Peers arrive in draws
+ * rather than continuously — a tracker introduces you to whoever announced near
+ * the same moment — so the useful question is not "how long has this taken" but
+ * "has anything new happened lately". And a peer connecting is not evidence it
+ * can help: another reader waiting for the same metadata is a peer with nothing
+ * to give, and two of them can sit connected indefinitely.
+ *
+ * So the quiet timer restarts whenever a peer arrives, and each time it expires
+ * the trackers are asked for a fresh draw before anything is abandoned. The
+ * deadline stops that going on forever.
+ */
 function withMetadata (torrent) {
   if (torrent.ready) return Promise.resolve(torrent)
 
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup()
-      reject(new SiteNotFound(torrent.infoHash))
-    }, METADATA_TIMEOUT_MS)
+    const startedAt = Date.now()
+    const deadline = startedAt + METADATA_DEADLINE_MS
+    let quiet = null
+    let sawAnyPeer = torrent.numPeers > 0
 
     const onMetadata = () => { cleanup(); resolve(torrent) }
     const onError = err => { cleanup(); reject(err) }
-    const cleanup = () => {
-      clearTimeout(timer)
-      torrent.removeListener('metadata', onMetadata)
-      torrent.removeListener('error', onError)
+    const giveUp = () => { cleanup(); reject(new SiteNotFound(torrent.infoHash)) }
+
+    const onQuiet = () => {
+      // A swarm that has produced no peer at all is almost certainly a site
+      // nobody is seeding, and its 404 should arrive as promptly as it always
+      // did — waiting the full deadline to say so helps no one, and this is by
+      // far the more common reason a site does not load.
+      if (!sawAnyPeer && Date.now() - startedAt >= METADATA_SILENT_MS) return giveUp()
+      if (Date.now() >= deadline) return giveUp()
+
+      // Otherwise there is a swarm; we are just talking to the wrong part of
+      // it. Ask the trackers to introduce us to somebody else. This is the step
+      // that was missing: without it the first draw was also the last.
+      try {
+        torrent.discovery?.tracker?.update()
+      } catch {
+        // A tracker client that will not re-announce is not fatal; the wait
+        // simply continues on the peers already known.
+      }
+      arm()
     }
 
+    const arm = () => {
+      clearTimeout(quiet)
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) return giveUp()
+      quiet = setTimeout(onQuiet, Math.min(METADATA_QUIET_MS, remaining))
+    }
+
+    // A new peer is a fresh chance, so it buys the swarm more time — but only
+    // within the deadline, or one peer joining every few seconds could hold a
+    // reader forever on a site that never loads.
+    const onWire = () => { sawAnyPeer = true; arm() }
+
+    const cleanup = () => {
+      clearTimeout(quiet)
+      torrent.removeListener('metadata', onMetadata)
+      torrent.removeListener('error', onError)
+      torrent.removeListener('wire', onWire)
+    }
+
+    torrent.on('wire', onWire)
     torrent.once('metadata', onMetadata)
     torrent.once('error', onError)
+    arm()
   })
 }

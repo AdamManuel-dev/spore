@@ -309,6 +309,7 @@ async function run () {
   await checkUpdateOffer()
   await checkPublishingASuccessor()
   await checkRememberedKey()
+  await checkSlowSwarm()
 }
 
 /**
@@ -1020,6 +1021,88 @@ async function checkPublishingASuccessor () {
   const stillOnBlog = await reader.evaluate(() => location.hash)
   check('a second site under the same key does not replace the first',
     still === detail && stillOnBlog.includes(v1), `${still.slice(0, 60)} | ${stillOnBlog.slice(0, 30)}`)
+}
+
+/**
+ * A reader who meets the wrong peer first must still get the site.
+ *
+ * This is the failure that prompted the two-clock wait, and it looked exactly
+ * like a dead site: one peer connected, nothing arrived, "This site could not
+ * be found" — while the seeder was up the whole time and its own log proved it.
+ * A browser cannot dial anyone; it meets whoever a tracker introduces it to. So
+ * a reader can spend the whole budget talking to another reader, who has
+ * nothing to give either.
+ *
+ * Staged here by seeding a site, taking the seed away, letting a reader find a
+ * peer that holds nothing, and bringing the seed back afterwards. Under a
+ * single 30s deadline the reader had already given up.
+ */
+async function checkSlowSwarm () {
+  const publisher = await browser.createBrowserContext().then(c => c.newPage())
+  const useless = await browser.createBrowserContext().then(c => c.newPage())
+  const reader = await browser.createBrowserContext().then(c => c.newPage())
+
+  for (const page of [publisher, useless, reader]) {
+    await page.goto(origin + '/', { waitUntil: 'load' })
+    await page.waitForFunction(
+      () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+  }
+
+  // Published, then withdrawn: the magnet is live, the bytes are nowhere.
+  // Two files, so this is a multi-file torrent and the paths keep their names.
+  // A single file produces a single-file torrent whose one path *is* the
+  // torrent name — no `.html`, so the gate correctly offers a file listing
+  // rather than a page, and the check would be measuring the wrong thing.
+  const magnet = await publisher.evaluate(async () => {
+    const { seedTorrent, getClient } = await import('/js/swarm.js')
+    const page = new File(['<h1>late arrival</h1>'], 'index.html', { type: 'text/html' })
+    page.fullPath = 'late/index.html'
+    const style = new File(['body{color:#333}'], 'site.css', { type: 'text/css' })
+    style.fullPath = 'late/site.css'
+    const torrent = await seedTorrent([page, style], { name: 'late' })
+    const uri = torrent.magnetURI
+    await getClient().remove(torrent.infoHash, { destroyStore: true })
+    return uri
+  })
+
+  // A peer that joins and can offer nothing — the other reader in the story.
+  await useless.evaluate(m => {
+    import('/js/swarm.js').then(({ getClient }) => getClient().add(m))
+  }, magnet)
+  await wait(3000)
+
+  await reader.evaluate(m => { location.hash = m }, magnet)
+
+  // Past the old single deadline of 30s, so this measures the change rather
+  // than the interval before it would have mattered.
+  await wait(34_000)
+  const midway = await reader.evaluate(() => ({
+    failed: document.getElementById('error')?.hidden === false,
+    peers: document.getElementById('peers')?.textContent
+  }))
+  check('a reader with a peer that has nothing keeps waiting past the old deadline',
+    !midway.failed, JSON.stringify(midway))
+
+  // The seed comes back. A re-announce should introduce them.
+  await publisher.evaluate(async () => {
+    const { seedTorrent } = await import('/js/swarm.js')
+    const page = new File(['<h1>late arrival</h1>'], 'index.html', { type: 'text/html' })
+    page.fullPath = 'late/index.html'
+    const style = new File(['body{color:#333}'], 'site.css', { type: 'text/css' })
+    style.fullPath = 'late/site.css'
+    await seedTorrent([page, style], { name: 'late' })
+  })
+
+  let loaded = false
+  for (let waited = 0; waited < 60_000 && !loaded; waited += 2000) {
+    await wait(2000)
+    loaded = await reader.evaluate(() => {
+      const frame = document.getElementById('viewer')
+      return !frame.hidden && frame.src.includes('/webtorrent/')
+    })
+  }
+  check('and gets the site once a peer that has it turns up', loaded,
+    loaded ? '' : await reader.$eval('#status', el => el.textContent))
 }
 
 /**

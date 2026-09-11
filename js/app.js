@@ -356,8 +356,16 @@ function watchJoining (torrent) {
     const trouble = trackerProblems.size > 0
       ? ` · ${trackerProblems.size} tracker${trackerProblems.size === 1 ? '' : 's'} unreachable`
       : ''
+    // A connected peer is not progress. It can be another reader waiting for
+    // the same thing, which is exactly the case that used to look like a dead
+    // site — so say what is being waited for rather than let a peer count
+    // imply the site is on its way.
+    const stalled = seconds >= 10 && torrent.numPeers > 0
+      ? ' · connected, but nobody has sent the site yet — asking for more peers'
+      : ''
+
     busy(`Looking for peers… ${found} after ${seconds}s${trouble}` +
-      (seconds >= 8 && torrent.numPeers === 0 ? ' · nobody has answered yet' : ''))
+      (seconds >= 8 && torrent.numPeers === 0 ? ' · nobody has answered yet' : stalled))
     ui.peers.textContent = found
   }
   tick()
