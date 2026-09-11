@@ -49,7 +49,7 @@
 
 import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
-import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chown, cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { basename, join, relative, resolve } from 'node:path'
 
@@ -127,6 +127,29 @@ if (!existsSync(contentPath)) {
 // so a data directory this process cannot write to is fatal — and the failure
 // it would otherwise produce is an EACCES stack trace several seconds later,
 // from inside a copy, which says nothing about whose fault it is.
+// Started as root under Docker so this can be sorted out without the operator
+// being asked to. An earlier release ran as root and left /data owned by root;
+// refusing to start and telling them to fix it by hand turned a permissions
+// detail into a crash loop, and the fix suggested — deleting the directory —
+// throws away the version history, which from 0.2.0 is the thing worth keeping.
+//
+// So: take ownership if we can, then drop. Nothing has touched the network or
+// read a byte of content at this point.
+const runAs = Number(setting('SPORE_UID', '1000'))
+const runAsGroup = Number(setting('SPORE_GID', String(runAs)))
+
+if (process.getuid?.() === 0) {
+  try {
+    await mkdir(dataPath, { recursive: true })
+    await chownRecursive(dataPath, runAs, runAsGroup)
+    process.setgid?.(runAsGroup)
+    process.setuid?.(runAs)
+  } catch (err) {
+    console.error(`Could not drop from root to ${runAs}:${runAsGroup}: ${err.message}`)
+    process.exit(1)
+  }
+}
+
 try {
   // Both directories: `versions/` may already exist and be owned by somebody
   // else — an earlier run of this image as root is the obvious way — in which
@@ -139,12 +162,17 @@ try {
   }
 } catch (err) {
   console.error(
-    `Cannot write to ${dataPath} (${err.code ?? err.message}).\n\n` +
-    'Every version is kept there, so this is fatal. Under Docker the image runs\n' +
-    'as uid 1000; if your account is not uid 1000, set `user: "${UID}:${GID}"` in\n' +
-    'the compose file, or chown the directory. Files left by an older release,\n' +
-    'which ran as root, need removing first:\n\n' +
-    '  sudo rm -rf data/')
+    `Cannot write to ${dataPath} as uid ${process.getuid?.() ?? '?'} ` +
+    `(${err.code ?? err.message}).\n\n` +
+    'Every version published is kept there, so this is fatal.\n\n' +
+    'This normally fixes itself: started as root, the seeder takes ownership of\n' +
+    'the directory and drops privileges. It cannot when the container is already\n' +
+    'running as a non-root user, so either drop `user:` from the compose file and\n' +
+    'let it sort itself out, or give the directory to that user:\n\n' +
+    `  sudo chown -R ${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000} data/\n\n` +
+    'Do not delete data/ to get past this. It holds every version you have\n' +
+    'published, and losing it means readers on an older version can never be\n' +
+    'told about a newer one.')
   process.exit(1)
 }
 
@@ -607,4 +635,23 @@ function format (bytes) {
   let unit = 0
   while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++ }
   return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
+}
+
+/**
+ * Give a tree to one user, skipping the work when it already belongs to them.
+ *
+ * The check matters: `data/` grows a full copy of the site per version, and
+ * walking all of it on every start to set ownership it already has would be a
+ * silly thing to do to somebody keeping ten versions of a large site.
+ */
+async function chownRecursive (dir, uid, gid) {
+  const info = await stat(dir)
+  if (info.uid === uid && info.gid === gid) return
+
+  await chown(dir, uid, gid)
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) await chownRecursive(full, uid, gid)
+    else await chown(full, uid, gid).catch(() => {})
+  }
 }

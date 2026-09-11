@@ -37,6 +37,14 @@ services:
     # user: "${UID}:${GID}"
 
     volumes:
+      # Bind mounts, not named volumes: you edit site/ yourself, and data/ is
+      # the version history — worth being able to see and back up.
+      #
+      # Create both before the first `up`. Docker creates a missing bind-mount
+      # source itself, as root, and then the seeder has to take ownership of a
+      # directory it did not make. It does, but starting from a directory that
+      # is already yours is tidier.
+      #
       # The folder you edit. Read-only is fine and correct: the seeder copies
       # each version into data/ and seeds the copy, so it never writes here.
       - ./site:/site:ro
