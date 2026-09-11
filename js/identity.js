@@ -108,15 +108,31 @@ export async function identityFromSeed (seed) {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Parse the file a site uses to declare its author.
+ * The longest a series name may be, because BEP 44 caps a salt at 64 bytes.
+ * Measured in UTF-8 bytes, not characters.
+ */
+export const MAX_SITE_BYTES = 64
+
+/**
+ * Parse the file a site uses to declare its author and which of that author's
+ * sites it is.
  *
- * Format is deliberately dull: the key as hex on the first line, and an
- * optional `name=` on the second. The name is a *claim* — tamper-proof,
- * because it is covered by the torrent's hashes, and not thereby true. Callers
- * must never render it as the author's name.
+ * Format is deliberately dull: the key as hex on the first line, then optional
+ * `name=` and `site=` lines.
+ *
+ * `name` is a *claim* — tamper-proof, because it is covered by the torrent's
+ * hashes, and not thereby true. Callers must never render it as the author's
+ * name.
+ *
+ * `site` is the series this belongs to, and it is load-bearing rather than
+ * decorative: it becomes the BEP 44 salt, so `(key, site)` is what an update
+ * actually addresses. Without it a key would have exactly one series, and
+ * publishing a second site under the same identity would announce itself as
+ * the successor to the first. An author has many sites; a key is an author.
  *
  * @param {string|Uint8Array} contents
- * @returns {{ publicKey: Uint8Array, hex: string, claimedName: string|null }}
+ * @returns {{ publicKey: Uint8Array, hex: string, claimedName: string|null,
+ *             site: string|null, salt: Uint8Array }}
  */
 export function parseSporePub (contents) {
   const text = typeof contents === 'string' ? contents : new TextDecoder().decode(contents)
@@ -128,18 +144,61 @@ export function parseSporePub (contents) {
   }
 
   let claimedName = null
+  let site = null
   for (const line of lines.slice(1)) {
-    const match = /^name=(.*)$/.exec(line)
-    if (match) claimedName = match[1].trim() || null
+    const name = /^name=(.*)$/.exec(line)
+    if (name) claimedName = name[1].trim() || null
+
+    const series = /^site=(.*)$/.exec(line)
+    if (series) site = normalizeSite(series[1]) // throws on anything unusable
   }
 
-  return { publicKey: fromHex(hex), hex, claimedName }
+  return { publicKey: fromHex(hex), hex, claimedName, site, salt: saltFor(site) }
+}
+
+/**
+ * Canonical form of a series name.
+ *
+ * Lower-cased and NFC-normalised because the salt is compared byte for byte:
+ * "Blog" and "blog" would otherwise be two different series, and a publisher
+ * would fork their own site by capitalising differently on a new machine.
+ * Whitespace is refused for the same reason — a trailing space is invisible
+ * and would silently start a new series.
+ *
+ * @returns {string|null} null for an empty name, meaning the default series
+ */
+export function normalizeSite (site) {
+  if (site == null) return null
+  const trimmed = String(site).normalize('NFC').trim().toLowerCase()
+  if (trimmed === '') return null
+
+  if (/\s/.test(trimmed)) {
+    throw new SyntaxError('a site name cannot contain spaces')
+  }
+  if (new TextEncoder().encode(trimmed).length > MAX_SITE_BYTES) {
+    throw new SyntaxError(`a site name must be at most ${MAX_SITE_BYTES} bytes`)
+  }
+  return trimmed
+}
+
+/**
+ * The BEP 44 salt for a series name.
+ *
+ * A site with no name uses the empty salt, which is an ordinary unsalted
+ * mutable item — so "the author's default series" needs no special case
+ * anywhere, and an older `spore.pub` with no `site=` keeps working.
+ */
+export function saltFor (site) {
+  const normalized = normalizeSite(site)
+  return normalized ? new TextEncoder().encode(normalized) : new Uint8Array(0)
 }
 
 /** The file contents a publisher should put in their folder. */
-export function formatSporePub (hex, claimedName) {
+export function formatSporePub (hex, claimedName, site) {
   const name = claimedName ? `\nname=${claimedName.replace(/[\r\n]/g, ' ').trim()}` : ''
-  return `${hex}${name}\n`
+  const normalized = normalizeSite(site)
+  const series = normalized ? `\nsite=${normalized}` : ''
+  return `${hex}${name}${series}\n`
 }
 
 /* -------------------------------------------------------------------------- */

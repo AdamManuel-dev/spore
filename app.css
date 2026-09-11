@@ -265,6 +265,17 @@ button:hover, .button:hover { border-color: var(--accent); }
   color: var(--muted);
 }
 
+.field select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.4 inherit;
+}
+
 .field input {
   width: 100%;
   box-sizing: border-box;

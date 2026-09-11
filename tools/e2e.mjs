@@ -847,6 +847,13 @@ async function checkPublishingASuccessor () {
 
   await publisher.click('#signin-use')
 
+  // Confirming the key does not publish: which site this is comes next.
+  await publisher.waitForFunction(
+    () => !document.getElementById('signin-step-choose').hidden, { timeout: 30_000 })
+  await publisher.select('#signin-series', '\u0000new')
+  await publisher.type('#signin-new-series', 'blog')
+  await publisher.click('#signin-use-known')
+
   const first = await settled('')
   check('publishing while signed in yields a magnet', Boolean(first), String(first))
 
@@ -865,6 +872,11 @@ async function checkPublishingASuccessor () {
   const greeting = await publisher.$eval('#signin-known-label', el => el.textContent)
   check('a key already in use is offered back by the name it was given',
     /my blog key/.test(greeting), greeting)
+  const offeredSeries = await publisher.$$eval('#signin-series option', els =>
+    els.map(el => el.textContent))
+  check('a site already published is offered as something to update',
+    offeredSeries.includes('blog'), JSON.stringify(offeredSeries))
+  await publisher.select('#signin-series', 'blog')
   await publisher.click('#signin-use-known')
 
   const second = await settled(first)
@@ -873,8 +885,8 @@ async function checkPublishingASuccessor () {
 
   const note = await publisher.$eval(
     '#share-successor', el => el.hidden ? '' : el.textContent)
-  check('the publisher is told the successor was signed and where it reaches',
-    /Version 2 signed/.test(note), note.slice(0, 80))
+  check('the publisher is told which site the successor is for, and where it reaches',
+    /new version of “blog”/.test(note) && /previous version/.test(note), note.slice(0, 90))
 
   // --- unsigned publishing must still work ----------------------------------
   await dropFolder('<h1>anonymous</h1>')
@@ -906,7 +918,35 @@ async function checkPublishingASuccessor () {
   }
   const detail = offered ? await reader.$eval('#update-detail', el => el.textContent) : ''
   check('a reader on the first version is offered the second',
-    offered && /Version 2/.test(detail), detail || 'no banner')
+    offered && /Published today/.test(detail), detail || 'no banner')
+
+  // --- and a second site under the same key must not replace the first ------
+  // The bug this exists for: history was keyed by public key alone, so
+  // publishing anything else under one identity signed it as the successor to
+  // whatever came before. A blog would be replaced by an unrelated page.
+  await publisher.evaluate(() => {
+    const data = new DataTransfer()
+    data.items.add(new File(['<h1>notes, a different site</h1>'], 'index.html',
+      { type: 'text/html' }))
+    const input = document.getElementById('folder-input')
+    input.files = data.files
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await publisher.waitForFunction(
+    () => document.getElementById('signin-dialog').open, { timeout: 20_000 })
+  await publisher.select('#signin-series', '\u0000new')
+  await publisher.type('#signin-new-series', 'notes')
+  await publisher.click('#signin-use-known')
+  await settled(third)
+
+  // The blog reader is holding the offer for blog v2. A record for "notes" is
+  // authentic, signed by the same key, and about something else — so it must
+  // neither be shown nor quietly swap the offer that is up.
+  await wait(6000)
+  const still = await reader.$eval('#update-detail', el => el.textContent)
+  const stillOnBlog = await reader.evaluate(() => location.hash)
+  check('a second site under the same key does not replace the first',
+    still === detail && stillOnBlog.includes(v1), `${still.slice(0, 60)} | ${stillOnBlog.slice(0, 30)}`)
 }
 
 /**
@@ -998,7 +1038,8 @@ async function checkSigningCore (page) {
     const { signUpdate, verifyUpdate, encodeRecord, decodeRecord, signableBytes } =
       await import('/js/record.js')
     const { createIdentity, identityFromPassphrase, identityFromSeed,
-      parseSporePub, formatSporePub, fingerprint, avatar } = await import('/js/identity.js')
+      parseSporePub, formatSporePub, fingerprint, avatar,
+      normalizeSite, saltFor } = await import('/js/identity.js')
 
     const text = bytes => new TextDecoder().decode(bytes)
     const out = {}
@@ -1077,6 +1118,33 @@ async function checkSigningCore (page) {
     const wrongKey = await verifyUpdate(forged, alice.publicKey)
     out.rejectsOtherKey = wrongKey.ok === false && /different key/.test(wrongKey.reason)
 
+    // The series. One key is one author, not one site: a record for the same
+    // author's other site is authentic, correctly signed, and about something
+    // else. Without this an author's second site announces itself as the
+    // successor to their first.
+    const blog = saltFor('blog')
+    const notes = saltFor('notes')
+    const forBlog = await signUpdate(
+      alice.privateKey, alice.publicKey, 'ab'.repeat(20), 3, blog)
+
+    out.acceptsMatchingSalt =
+      (await verifyUpdate(forBlog, alice.publicKey, { salt: blog })).ok === true
+    const crossed = await verifyUpdate(forBlog, alice.publicKey, { salt: notes })
+    out.rejectsOtherSeries = crossed.ok === false && /different site/.test(crossed.reason)
+    // An unsalted site must not accept a salted record either, nor the reverse.
+    out.rejectsSaltedForUnsalted =
+      (await verifyUpdate(forBlog, alice.publicKey)).ok === false
+    out.rejectsUnsaltedForSalted =
+      (await verifyUpdate(record, alice.publicKey, { salt: blog })).ok === false
+
+    out.siteNamesAreCanonical =
+      normalizeSite('  Blog  ') === 'blog' && normalizeSite('') === null
+    out.siteNamesRefuseSpaces = (() => {
+      try { normalizeSite('my blog'); return false } catch { return true }
+    })()
+    out.sporePubCarriesSite =
+      parseSporePub(formatSporePub(alice.hex, 'Alice', 'Blog')).site === 'blog'
+
     // Rule 3: tampering with the payload after signing.
     const tampered = decodeRecord(encodeRecord(record))
     tampered.v.ih = fromHex('ff'.repeat(20))
@@ -1120,6 +1188,13 @@ async function checkSigningCore (page) {
   check('spore.pub refuses anything that is not a key', r.sporePubRejectsJunk)
   check('a signed update verifies and yields its infohash', r.verifies && r.returnsInfoHash)
   check('an update signed by another key is refused', r.rejectsOtherKey)
+  check('an update for the same author\'s other site is refused', r.rejectsOtherSeries)
+  check('a series and the default series are not interchangeable',
+    r.acceptsMatchingSalt && r.rejectsSaltedForUnsalted && r.rejectsUnsaltedForSalted,
+    JSON.stringify({ match: r.acceptsMatchingSalt, salted: r.rejectsSaltedForUnsalted, unsalted: r.rejectsUnsaltedForSalted }))
+  check('site names are canonical, and refuse what would silently fork a series',
+    r.siteNamesAreCanonical && r.siteNamesRefuseSpaces)
+  check('spore.pub carries the series', r.sporePubCarriesSite)
   check('tampering with the infohash breaks the signature', r.rejectsTamperedValue)
   check('tampering with the sequence breaks the signature', r.rejectsTamperedSeq)
   check('an authentic but stale update is refused', r.rejectsReplay)

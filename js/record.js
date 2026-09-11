@@ -58,6 +58,9 @@ export function signableBytes ({ seq, v, salt }) {
  * @param {string} infoHash       40 hex characters
  * @param {number} seq            strictly greater than the previous one
  * @param {Uint8Array} [salt]
+ *   The series this version belongs to. BEP 44 addresses a mutable item by
+ *   `(public key, salt)`, which is how one identity runs several independent
+ *   sites; omitted means the author's default series.
  */
 export async function signUpdate (privateKey, publicKey, infoHash, seq, salt) {
   if (!Number.isInteger(seq) || seq < 1) throw new TypeError('seq must be a positive integer')
@@ -107,7 +110,7 @@ export function decodeRecord (bytes) {
  * @returns {Promise<{ ok: boolean, reason?: string, infoHash?: string, seq?: number }>}
  */
 export async function verifyUpdate (record, expectedKey, context = {}) {
-  const { knownSeq, currentInfoHash } = context
+  const { knownSeq, currentInfoHash, salt } = context
 
   const k = record.k
   if (!(k instanceof Uint8Array) || k.length !== 32) {
@@ -115,6 +118,16 @@ export async function verifyUpdate (record, expectedKey, context = {}) {
   }
   if (!sameBytes(k, expectedKey)) {
     return { ok: false, reason: 'signed by a different key than the site declares' }
+  }
+
+  // The salt is what makes `(key, salt)` an address rather than the key alone.
+  // Without this check an author with two sites would find each one announcing
+  // itself as the successor to the other — the record is authentic, correctly
+  // signed, and about a different site entirely.
+  const expectedSalt = salt ?? new Uint8Array(0)
+  const recordSalt = record.salt ?? new Uint8Array(0)
+  if (!sameBytes(recordSalt, expectedSalt)) {
+    return { ok: false, reason: 'signed for a different site of the same author' }
   }
 
   if (!Number.isInteger(record.seq) || record.seq < 1) {

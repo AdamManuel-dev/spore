@@ -51,7 +51,7 @@ export async function signIn (passphrase) {
 export function useIdentity (derived, label) {
   identity = derived
   rememberMyKey(derived.hex, label)
-  return { label: labelFor(derived.hex), lastSeq: lastPublished(derived.hex)?.seq }
+  return { label: labelFor(derived.hex) }
 }
 
 export async function signOut () {
@@ -188,9 +188,51 @@ function published () {
   }
 }
 
-/** What was last published under a key from this browser, if anything. */
-export function lastPublished (keyHex) {
-  return published()[keyHex] ?? null
+/**
+ * A series is `(key, site)`, so history is keyed that way too.
+ *
+ * Keying by the key alone was a bug with teeth: publishing a second site under
+ * one identity signed it as the *successor* to the first, and readers of a blog
+ * were offered an unrelated page as its next version. A key is an author; an
+ * author has many sites.
+ */
+function seriesKey (keyHex, site) {
+  return site ? `${keyHex}/${site}` : keyHex
+}
+
+/** What was last published in one series from this browser, if anything. */
+export function lastPublished (keyHex, site) {
+  return published()[seriesKey(keyHex, site)] ?? null
+}
+
+/** Series this browser has published under a key, newest first. */
+export function publishedSeries (keyHex) {
+  const all = published()
+  return Object.entries(all)
+    .filter(([id]) => id === keyHex || id.startsWith(`${keyHex}/`))
+    .map(([id, record]) => ({
+      site: id.includes('/') ? id.slice(keyHex.length + 1) : null,
+      ...record
+    }))
+    .sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0))
+}
+
+/**
+ * The sequence number for the next version of a series: the clock, in millis.
+ *
+ * BEP 44 only requires that a successor's seq be strictly greater than the one
+ * before it, and a counter is the wrong way to get that here. A count has to be
+ * remembered, and this browser's storage is the only place it could live — so
+ * publishing the same site from a second machine restarted at 1 and every
+ * reader correctly refused it as stale. A clock needs nothing remembered and
+ * agrees with itself across machines.
+
+ * A machine whose clock is wrong publishes a wrong number, and a clock far in
+ * the future burns the series until real time catches up. That is a broken
+ * clock's problem to fix.
+ */
+export function nextSeq () {
+  return Date.now()
 }
 
 /**
@@ -198,14 +240,15 @@ export function lastPublished (keyHex) {
  *
  * Sequence numbers only ever climb: BEP 44 rejects a record whose seq is not
  * above the one a peer already holds, so re-using one would produce a signed
- * update that every reader correctly ignores.
+ * update that every reader correctly ignores. See `nextSeq`.
  */
-export function recordPublished (keyHex, { seq, infoHash, name }) {
+export function recordPublished (keyHex, { site, seq, infoHash, name }) {
   const all = published()
-  const known = all[keyHex]
+  const id = seriesKey(keyHex, site)
+  const known = all[id]
   if (known && known.seq >= seq) return
 
-  all[keyHex] = { seq, infoHash, ...(name ? { name } : {}) }
+  all[id] = { seq, infoHash, publishedAt: Date.now(), ...(name ? { name } : {}) }
   try {
     localStorage.setItem(PUBLISHED_KEY, JSON.stringify(all))
   } catch {

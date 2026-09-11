@@ -20,6 +20,17 @@
 
 const STORAGE_KEY = 'spore.authors'
 
+/**
+ * A reader tracks versions per series, not per key.
+ *
+ * `(key, site)` is what a BEP 44 record addresses, so it is also the unit a
+ * replay check has to be about: refusing an update to someone's blog because
+ * their unrelated notes site is on a higher version would be nonsense.
+ */
+function seriesKey (keyHex, site) {
+  return site ? `${keyHex}/${site}` : keyHex
+}
+
 /** @returns {Record<string, {seq: number, infoHash: string, claimed?: string, seenAt: number}>} */
 function load () {
   try {
@@ -40,26 +51,40 @@ function save (authors) {
   }
 }
 
-/** @returns {object|null} everything known about a key, or null if unmet */
+/**
+ * What is known about a key, ignoring which of its series was seen.
+ *
+ * Meeting an author is a fact about the person; which of their sites you were
+ * reading at the time is not part of it.
+ *
+ * @returns {object|null} null if this key has never been met
+ */
 export function author (keyHex) {
-  return load()[keyHex] ?? null
+  const authors = load()
+  const met = Object.entries(authors)
+    .filter(([id]) => id === keyHex || id.startsWith(`${keyHex}/`))
+    .map(([, record]) => record)
+  if (met.length === 0) return null
+
+  return met.reduce((first, record) => record.seenAt < first.seenAt ? record : first)
 }
 
 /**
  * The highest sequence accepted for a key, so anything older is refused.
  * Undefined — not 0 — for an unmet key: seq 0 is a legitimate first version.
  */
-export function knownSeq (keyHex) {
-  return load()[keyHex]?.seq
+export function knownSeq (keyHex, site) {
+  return load()[seriesKey(keyHex, site)]?.seq
 }
 
 /** Record an accepted version. Never moves backwards, whatever it is told. */
-export function rememberVersion (keyHex, { seq, infoHash, claimed }) {
+export function rememberVersion (keyHex, { site, seq, infoHash, claimed }) {
   const authors = load()
-  const known = authors[keyHex]
+  const id = seriesKey(keyHex, site)
+  const known = authors[id]
   if (known && known.seq >= seq) return
 
-  authors[keyHex] = { seq, infoHash, seenAt: Date.now(), ...(claimed ? { claimed } : {}) }
+  authors[id] = { seq, infoHash, seenAt: Date.now(), ...(claimed ? { claimed } : {}) }
   save(authors)
 }
 

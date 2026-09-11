@@ -221,6 +221,29 @@
         <p id="signin-known-fingerprint" class="fingerprint"></p>
       </div>
     </div>
+    <!--
+      Which site this is. A key is an author and an author has many sites, so
+      the series has to be chosen: publishing everything under one identity as
+      one series would announce a new page as the successor to an old blog.
+      The name becomes the BEP 44 salt, so it is what makes (key, site) an
+      address — and typing the same name on another machine continues the same
+      site, with nothing to back up.
+    -->
+    <label class="field">
+      <span class="field-label">This is a new version of</span>
+      <select id="signin-series"></select>
+    </label>
+    <label class="field" id="signin-new-series-field" hidden>
+      <span class="field-label">Name this site</span>
+      <input id="signin-new-series" type="text" spellcheck="false"
+             autocapitalize="off" placeholder="blog">
+    </label>
+    <p class="muted small">Short, lower-case, no spaces — it goes in the site's
+       <code>spore.pub</code> and never changes. Type the same name on another
+       machine and you are publishing the same site.</p>
+
+    <p id="signin-series-error" class="signin-error" hidden></p>
+
     <div class="dialog-actions">
       <button id="signin-other" type="button" class="link">Different key</button>
       <button id="signin-skip-known" type="button" class="link">Publish unsigned</button>
@@ -302,7 +325,7 @@
 
     <div class="dialog-actions">
       <button id="signin-back" type="button" class="link">Back</button>
-      <button id="signin-use" type="button">Sign and publish</button>
+      <button id="signin-use" type="button">Continue</button>
     </div>
   </section>
 </dialog>

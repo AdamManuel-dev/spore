@@ -40,6 +40,11 @@ const MAX_RECORD_BYTES = 2048
  *   The record to hand to peers, if we are holding one.
  * @param {(update: { infoHash: string, seq: number }) => void} options.onUpdate
  *   Called once per verified, accepted record.
+ * @param {() => (Uint8Array|null|Promise<Uint8Array|null>)} [options.salt]
+ *   The series this site belongs to, from its `spore.pub`. Resolved the same
+ *   way and for the same reason as the key: it is unknown until the file can
+ *   be read. Without it an author's second site would be accepted as the
+ *   successor to their first.
  * @param {() => (number|undefined)} [options.knownSeq]
  *   Highest sequence already accepted for this key, so replays are refused.
  * @param {() => (string|undefined)} [options.currentInfoHash]
@@ -48,6 +53,7 @@ const MAX_RECORD_BYTES = 2048
 export function updateExtension (options) {
   const {
     publicKey, offer, onUpdate,
+    salt = () => null,
     knownSeq = () => undefined,
     currentInfoHash = () => undefined,
     onRejected = () => {}
@@ -97,6 +103,7 @@ export function updateExtension (options) {
       }
 
       const result = await verifyUpdate(record, expected, {
+        salt: await salt(),
         knownSeq: knownSeq(),
         currentInfoHash: currentInfoHash()
       })

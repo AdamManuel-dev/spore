@@ -145,8 +145,15 @@ passphrase produces a *different valid identity* rather than an error. Compare
 it to what you saw last time; the second time on the same browser it greets you
 by the name you gave it.
 
-Your folder then gets a `spore.pub` naming your public key, so the site says who
-it belongs to.
+Then you say **which site this is** — `blog`, `notes` — picking from what you
+have published before or naming a new one. This matters more than it looks: a
+key is an *author*, and an author has many sites. The name goes in the site's
+`spore.pub` and is what an update actually addresses, so publishing your CV
+never announces itself as the new version of your blog. Type the same name on
+another machine and you are publishing the same site.
+
+Your folder then gets a `spore.pub` naming your public key and that site, so the
+site says who it belongs to and which of their sites it is.
 
 You can tick **keep this key on this device** to stop retyping. What gets stored
 is the key itself in a form the browser will sign with but will not hand back —
@@ -156,13 +163,13 @@ and there is no revocation. Don't do it in a browser where you enable scripts
 for sites you don't trust. The full reasoning is in
 [SECURITY.md](SECURITY.md#keeping-a-publishing-key-on-this-device).
 
-Publish again later, from the same key, and Spore signs a small record
-saying "version *n* of this key is at *this* infohash" and offers it to peers
-still on the old version. A reader there sees:
+Publish again later, same key and same site name, and Spore signs a small record
+saying "the newest `blog` from this key is at *this* infohash" and offers it to
+peers still on the old version. A reader there sees:
 
 > **"Lara from work" has published a newer version.**
-> Version 3, signed by `2317-e451-c8f8-2b8c` — the same key as the version you
-> are reading. **[Open it]** [Not now]
+> Published 11 September 2026, signed by `2317-e451-c8f8-2b8c` — the same key as
+> the version you are reading. **[Open it]** [Not now]
 
 They are offered it. They are never moved. A signature proves *who* wrote a
 version, not that the reader wants to be taken to it — and silently swapping
@@ -180,8 +187,9 @@ Three things worth being plain about:
   DHT and an ordinary BEP 46 client resolves it — but in a browser it moves over
   the wire between peers. So an update reaches someone only if a peer they
   connect to holds it. **Keep the old version seeded.**
-- **Sequence numbers live in your browser.** Publish from a different machine
-  and numbering restarts, and readers correctly refuse the result as stale.
+- **Versions are timestamps, so your clock matters.** There is no counter to
+  keep, which is what lets you publish from any machine — but a clock running
+  far ahead burns the series until real time catches up.
 
 The design, the threat model and what is deliberately not built are in
 [spec/mutable-sites.md](spec/mutable-sites.md).

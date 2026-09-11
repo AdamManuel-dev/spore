@@ -13,11 +13,11 @@ import { InvalidSiteRef, magnetFor, parseSiteRef, webSeedHosts } from './magnet.
 import { scriptsAllowed, servePolicyQueries, setScriptsAllowed } from './policy.js'
 import { checkPublishable, filesFromDrop, filesFromInput, publish } from './publish.js'
 import {
-  REMEMBER_WARNING, isRemembered, knownKey, labelFor, lastPublished, me, recordPublished,
-  rememberKeyOnDevice, restoreRememberedKey, signIn, signOut, useIdentity
+  REMEMBER_WARNING, knownKey, labelFor, lastPublished, me, nextSeq, publishedSeries,
+  recordPublished, rememberKeyOnDevice, restoreRememberedKey, signIn, signOut, useIdentity
 } from './me.js'
 import { signUpdate } from './record.js'
-import { avatar, fingerprint, formatSporePub } from './identity.js'
+import { avatar, fingerprint, formatSporePub, normalizeSite, saltFor } from './identity.js'
 import { entryURL, findEntry, readSporePub } from './site.js'
 import { SiteNotFound, getClient, openTorrent, startClient, startWorker } from './swarm.js'
 import { watchForUpdates } from './updates.js'
@@ -92,6 +92,10 @@ const ui = {
   signinOther: el('signin-other'),
   signinSkipKnown: el('signin-skip-known'),
   signinUseKnown: el('signin-use-known'),
+  signinSeries: el('signin-series'),
+  signinNewSeriesField: el('signin-new-series-field'),
+  signinNewSeries: el('signin-new-series'),
+  signinSeriesError: el('signin-series-error'),
   passphrase: el('signin-passphrase'),
   reveal: el('signin-reveal'),
   signinError: el('signin-error'),
@@ -383,6 +387,7 @@ function askAboutSigning (what) {
   ui.reveal.checked = false
   ui.passphrase.type = 'password'
   ui.signinError.hidden = true
+  ui.signinSeriesError.hidden = true
   ui.signinRemember.checked = false
 
   const known = me()
@@ -392,7 +397,9 @@ function askAboutSigning (what) {
   ui.signinDialog.showModal()
 
   return new Promise(resolve => {
-    /** @type {object|null} the identity derived in this dialog, pre-confirmation */
+    /** The identity this dialog will sign with, once one is settled on. */
+    let chosen = known
+    /** Derived in this dialog and not yet confirmed. */
     let derived = null
 
     const finish = answer => {
@@ -426,7 +433,10 @@ function askAboutSigning (what) {
       }
     }
 
-    const onUse = async () => {
+    // Confirming the key does not publish: which of this author's sites the
+    // folder belongs to is still unanswered, and it is the question that stops
+    // a new page being announced as the successor to an old blog.
+    const onConfirmed = async () => {
       if (!derived) return
       useIdentity(derived, ui.signinLabel.value)
 
@@ -440,11 +450,29 @@ function askAboutSigning (what) {
         }
       }
 
+      chosen = derived
       await showSignedIn(derived)
-      finish({ sign: true })
+      await showChooseStep(derived)
     }
 
-    const onUseKnown = () => finish({ sign: true })
+    const onSign = () => {
+      let site
+      try {
+        site = selectedSeries()
+      } catch (err) {
+        ui.signinSeriesError.textContent = err.message
+        ui.signinSeriesError.hidden = false
+        return
+      }
+      finish({ sign: true, site, identity: chosen })
+    }
+
+    const onSeriesChange = () => {
+      ui.signinNewSeriesField.hidden = ui.signinSeries.value !== NEW_SERIES
+      ui.signinSeriesError.hidden = true
+      if (!ui.signinNewSeriesField.hidden) ui.signinNewSeries.focus()
+    }
+
     const onOther = () => showStep(ui.stepEnter, 'Sign with a different key')
     const onBack = () => showStep(ui.stepEnter, 'Sign this site?')
     const onSkip = () => finish({ sign: false })
@@ -455,8 +483,9 @@ function askAboutSigning (what) {
     const onClose = () => { cleanup(); resolve(null) }
 
     ui.signinContinue.addEventListener('click', onContinue)
-    ui.signinUse.addEventListener('click', onUse)
-    ui.signinUseKnown.addEventListener('click', onUseKnown)
+    ui.signinUse.addEventListener('click', onConfirmed)
+    ui.signinUseKnown.addEventListener('click', onSign)
+    ui.signinSeries.addEventListener('change', onSeriesChange)
     ui.signinOther.addEventListener('click', onOther)
     ui.signinBack.addEventListener('click', onBack)
     ui.signinSkip.addEventListener('click', onSkip)
@@ -466,8 +495,9 @@ function askAboutSigning (what) {
 
     function cleanup () {
       ui.signinContinue.removeEventListener('click', onContinue)
-      ui.signinUse.removeEventListener('click', onUse)
-      ui.signinUseKnown.removeEventListener('click', onUseKnown)
+      ui.signinUse.removeEventListener('click', onConfirmed)
+      ui.signinUseKnown.removeEventListener('click', onSign)
+      ui.signinSeries.removeEventListener('change', onSeriesChange)
       ui.signinOther.removeEventListener('click', onOther)
       ui.signinBack.removeEventListener('click', onBack)
       ui.signinSkip.removeEventListener('click', onSkip)
@@ -476,6 +506,19 @@ function askAboutSigning (what) {
       ui.signinDialog.removeEventListener('close', onClose)
     }
   })
+}
+
+/** Sentinel for "not one of the sites I have published before". */
+const NEW_SERIES = '\u0000new'
+
+/** @returns {string|null} the series name, or null for the default series */
+function selectedSeries () {
+  if (ui.signinSeries.value !== NEW_SERIES) return ui.signinSeries.value || null
+
+  // normalizeSite throws with a message written for whoever typed it.
+  const site = normalizeSite(ui.signinNewSeries.value)
+  if (!site) throw new SyntaxError('Give this site a short name, like "blog".')
+  return site
 }
 
 function showStep (step, title) {
@@ -491,6 +534,24 @@ async function showChooseStep (identity) {
   ui.knownAvatar.replaceChildren(await avatarNode(identity.publicKey))
   ui.knownLabel.textContent = label ?? 'Your key'
   ui.knownFingerprint.textContent = await fingerprint(identity.publicKey)
+
+  // Sites already published under this key, so the usual case — another
+  // version of something that exists — is a single click and no typing.
+  const series = publishedSeries(identity.hex)
+  ui.signinSeries.replaceChildren(
+    ...series.map(entry => {
+      const option = document.createElement('option')
+      option.value = entry.site ?? ''
+      option.textContent = entry.site ?? 'the default site'
+      return option
+    }),
+    Object.assign(document.createElement('option'),
+      { value: NEW_SERIES, textContent: series.length ? 'a new site…' : 'a new site' })
+  )
+  ui.signinSeries.value = series.length ? (series[0].site ?? '') : NEW_SERIES
+  ui.signinNewSeriesField.hidden = ui.signinSeries.value !== NEW_SERIES
+  ui.signinNewSeries.value = ''
+
   showStep(ui.stepChoose, 'Sign this site?')
 }
 
@@ -525,13 +586,13 @@ async function onSignOut () {
 
 async function showSignedIn (identity) {
   const label = labelFor(identity.hex)
-  const last = lastPublished(identity.hex)
+  const series = publishedSeries(identity.hex)
 
   ui.meAvatar.replaceChildren(await avatarNode(identity.publicKey))
   ui.meName.textContent = label ? `Signing as ${label}` : 'Signing as'
   ui.meFingerprint.textContent = await fingerprint(identity.publicKey)
-  ui.meHistory.textContent = last
-    ? `Last published version ${last.seq} from this browser. `
+  ui.meHistory.textContent = series.length
+    ? `${series.length} site${series.length === 1 ? '' : 's'} published from this browser. `
     : ''
   ui.signedIn.hidden = false
 }
@@ -579,12 +640,18 @@ function watchAuthor (torrent) {
   const stop = watchForUpdates(torrent, {
     publicKey: () => key.then(k => k?.publicKey ?? null),
 
+    // Which of this author's sites we are reading. A record for another of
+    // their series is authentic and about something else entirely.
+    salt: () => key.then(k => k?.salt ?? null),
+
     // A reader forwards what it was given. Passing on a record that verified
     // here costs nothing and is how a swarm of readers keeps an update
     // circulating after the publisher's own seeder goes away.
     offer: () => authorship?.offered ?? null,
 
-    knownSeq: () => authorship?.key ? knownSeq(authorship.key.hex) : undefined,
+    knownSeq: () => authorship?.key
+      ? knownSeq(authorship.key.hex, authorship.key.site)
+      : undefined,
     currentInfoHash: () => torrent.infoHash,
     onRejected: reason => console.debug('Spore: refused an update —', reason),
     onUpdate: update => { if (authorship?.key) offerUpdate(authorship.key, update) }
@@ -648,11 +715,33 @@ async function offerUpdate (key, update) {
   ui.updateAvatar.replaceChildren(await avatarNode(key.publicKey))
   ui.updateTitle.textContent = `${claimed} has published a newer version.`
   ui.updateDetail.textContent =
-    `Version ${update.seq}, signed by ${await fingerprint(key.publicKey)}` +
+    `${describeVersion(update.seq)}, signed by ${await fingerprint(key.publicKey)}` +
     (returning
       ? ' — the same key as the version you are reading.'
       : ' — the key this site declares. A name is a claim; the key is not.')
   ui.update.hidden = false
+}
+
+/**
+ * How to say which version this is.
+ *
+ * Spore numbers versions with the clock, so a sequence number is a millisecond
+ * timestamp and reads as noise. Rendered as a date it says something a reader
+ * can act on — "is this newer than what I am looking at, and by how long".
+ *
+ * Small numbers are left as numbers. BEP 44 says nothing about what a seq
+ * means, another implementation may well count from 1, and printing 1970 for
+ * version 3 would be worse than printing 3.
+ */
+function describeVersion (seq) {
+  // Roughly 2001; below this a value is a counter, not a clock.
+  if (seq < 1_000_000_000_000) return `Version ${seq}`
+
+  const when = new Date(seq)
+  const sameDay = new Date().toDateString() === when.toDateString()
+  return sameDay
+    ? `Published today at ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : `Published ${when.toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' })}`
 }
 
 /**
@@ -673,6 +762,7 @@ function onUpdateOpen () {
   // Only now, when the reader has said yes, does this become the version this
   // browser knows about — so declining leaves an older record still offerable.
   rememberVersion(authorship.key.hex, {
+    site: authorship.key.site,
     seq: update.seq,
     infoHash: update.infoHash,
     claimed: authorship.key.claimedName
@@ -1070,14 +1160,14 @@ async function seed (files, name) {
 
   busy(`Hashing ${files.length} file${files.length === 1 ? '' : 's'}…`)
   try {
-    const signed = decision.sign ? withSporePub(files) : files
+    const signed = decision.sign ? withSporePub(files, decision.site) : files
     const torrent = await publish(signed, name)
     const magnet = magnetFor(torrent.infoHash, torrent.name)
     showShareLink(magnet)
 
     // Announced before navigating: navigating replaces the site on screen, and
     // this has to happen whether or not the reader stays to watch it.
-    const successor = decision.sign ? await announceSuccessor(torrent) : null
+    const successor = decision.sign ? await announceSuccessor(torrent, decision.site) : null
 
     navigate(magnet)
     if (successor) showSuccessorNote(successor)
@@ -1094,7 +1184,7 @@ async function seed (files, name) {
  * a key other than the one in this tab, and silently overwriting it would
  * change who the site says it belongs to without saying so.
  */
-function withSporePub (files) {
+function withSporePub (files, site) {
   const identity = me()
   if (!identity) return files
 
@@ -1107,7 +1197,7 @@ function withSporePub (files) {
   const path = pathOf(index ?? files[0])
   const root = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : ''
 
-  const contents = formatSporePub(identity.hex, null)
+  const contents = formatSporePub(identity.hex, null, site)
   const file = new File([contents], 'spore.pub', { type: 'text/plain' })
   file.fullPath = `${root}spore.pub`
   return [...files, file]
@@ -1127,21 +1217,21 @@ function withSporePub (files) {
  *
  * @returns {Promise<{seq: number, reaching: boolean}|null>}
  */
-async function announceSuccessor (torrent) {
+async function announceSuccessor (torrent, site) {
   const identity = me()
   if (!identity) return null
 
-  const previous = lastPublished(identity.hex)
-  const seq = previous ? previous.seq + 1 : 1
+  const previous = lastPublished(identity.hex, site)
+  const seq = nextSeq()
 
-  recordPublished(identity.hex, { seq, infoHash: torrent.infoHash, name: torrent.name })
+  recordPublished(identity.hex, { site, seq, infoHash: torrent.infoHash, name: torrent.name })
 
-  // A first version has no predecessor to announce to. It is still recorded,
-  // because the version after it needs a number to climb from.
+  // A first version of a site has no predecessor to announce to. It is still
+  // recorded, so the next version knows which swarm to reach.
   if (!previous || previous.infoHash === torrent.infoHash) return null
 
   const record = await signUpdate(
-    identity.privateKey, identity.publicKey, torrent.infoHash, seq)
+    identity.privateKey, identity.publicKey, torrent.infoHash, seq, saltFor(site))
 
   const old = getClient().torrents.find(t => t.infoHash === previous.infoHash)
   if (old) {
@@ -1149,30 +1239,33 @@ async function announceSuccessor (torrent) {
     // from now on is told, once, at its handshake.
     announcing.push(watchForUpdates(old, {
       publicKey: () => identity.publicKey,
+      salt: () => saltFor(site),
       offer: () => record,
       currentInfoHash: () => old.infoHash,
       onUpdate: () => {}
     }))
   }
 
-  return { seq, reaching: Boolean(old) }
+  return { site, reaching: Boolean(old) }
 }
 
 /** Watchers offering successors, held so they are not collected. @type {Array<() => void>} */
 const announcing = []
 
-function showSuccessorNote ({ seq, reaching }) {
+function showSuccessorNote ({ site, reaching }) {
   // Beside the share link, not in the notice bar. Publishing navigates to the
   // new site, and rendering a site clears the notice — so the one message that
   // explains what just happened to the *old* site would vanish a second after
   // appearing.
+  const named = site ? `“${site}”` : 'this site'
   ui.shareSuccessor.textContent = reaching
-    ? `Version ${seq} signed. Anyone who opens the previous version while this ` +
-      'tab is open will be offered this one. Close the tab and nobody is told — ' +
-      'a seeder holding the old version is what makes that durable.'
-    : `Version ${seq} signed, but the previous version is not open in this tab, ` +
-      'so there is no swarm to announce it to. Open the old magnet here, or ' +
-      'keep it offline, and publish again to reach its readers.'
+    ? `Signed as the new version of ${named}. Anyone who opens the previous ` +
+      'version while this tab is open will be offered this one. Close the tab ' +
+      'and nobody is told — a seeder holding the old version is what makes ' +
+      'that durable.'
+    : `Signed as the new version of ${named}, but the previous version is not ` +
+      'open in this tab, so there is no swarm to announce it to. Open the old ' +
+      'magnet here, or keep it offline, and publish again to reach its readers.'
   ui.shareSuccessor.hidden = false
 }
 

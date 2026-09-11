@@ -51,11 +51,23 @@ no DHT.
 A site declares its identity by including a file named `spore.pub` in the top
 level of its folder — beside `index.html`.
 
-- Content: 64 lowercase hexadecimal characters, the Ed25519 public key,
-  optionally followed by a single `\n`.
+- First line: 64 lowercase hexadecimal characters, the Ed25519 public key.
+- Optional `name=` line: what the key calls itself. A claim, not a fact — see
+  [The claimed name is a claim](#the-claimed-name-is-a-claim).
+- Optional `site=` line: which of this author's sites this is. It becomes the
+  BEP 44 salt, so `(key, site)` is what an update addresses. Canonical form is
+  NFC, lower-case and free of whitespace, at most 64 UTF-8 bytes. Absent means
+  the empty salt — the author's default series. See
+  [One key, many sites](#one-key-many-sites).
 - It is ordinary file content. It is covered by the torrent's own hashes, so it
   cannot be altered without changing the infohash, and any BitTorrent client
   downloads it like any other file.
+
+```
+7962e2fa4c1b0d5e8a3f76b21c9d0e4a5f8b3c6d1e2a7f04b9c8d3e6a1f5b0c4
+name=Lara from work
+site=blog
+```
 
 A site without `spore.pub` is immutable and any update message concerning it
 **must** be ignored.
@@ -372,6 +384,55 @@ can grind keypairs until the picture looks approximately right, and people
 compare pictures coarsely. The avatar answers "does this look like last time";
 the full key answers "is this the same key".
 
+## One key, many sites
+
+**Decided.** A site declares a series name in its `spore.pub`, and that name is
+the BEP 44 salt. An update addresses `(public key, salt)`, never the key alone.
+
+```
+7962e2fa…c1d4
+name=Lara from work
+site=blog
+```
+
+The alternative was tried and is a trap: with history keyed by public key alone,
+an author who publishes a second thing signs it as the *successor to the first*.
+Their blog readers are offered an unrelated page as the blog's next version, and
+the record is perfectly authentic — correctly signed, by the right key, about
+something else. Nothing on the reader's side can catch it, because from the
+reader's side there is nothing wrong with it. A key is an author; an author has
+many sites.
+
+The name is chosen and typed by the publisher rather than generated, because
+that is what makes a series reproducible: passphrase plus `blog` continues the
+blog from any machine, with nothing to back up and no state to lose. It is
+canonicalised — NFC, lower-cased, no whitespace — since the salt is compared
+byte for byte and `Blog` would otherwise silently fork the series.
+
+A site with no `site=` uses the empty salt, which is an ordinary unsalted BEP 44
+item. So "the author's default series" needs no special case, and a `spore.pub`
+written before this existed keeps working.
+
+## Versions are timestamps
+
+**Decided.** `seq` is `Date.now()` — milliseconds since the epoch.
+
+BEP 44 requires only that a successor's seq be strictly greater than the one
+before it; it says nothing about counting. A counter has to be remembered, and
+in a browser the only place to remember it is that browser's storage — so
+publishing the same site from a second machine restarted at 1 and every reader
+correctly refused it as stale. Your own laptop could not update your own blog.
+A clock needs nothing remembered and agrees with itself across machines.
+
+The cost is that a wrong clock publishes a wrong number, and one running far
+ahead burns the series until real time catches up. That is a broken clock's
+problem to fix. Readers do not second-guess it: strictly-greater wins, exactly
+as specified. A reader cannot audit someone else's clock, and refusing
+"suspiciously future" records would reject valid ones.
+
+It also reads better. `Version 1757620488123` is noise; rendered as a date it
+tells a reader something `Version 7` never could.
+
 ## Offer, never follow
 
 **Decided.** A verified successor is shown to the reader and applied only when
@@ -462,10 +523,8 @@ either. Attaching that early means the site's own key is not yet readable, so
 the key is resolved through a promise and any record arriving first waits for
 it.
 
-Not implemented: the rendezvous swarm, salt, introductions, petnames, flagging,
-and key rotation. Sequence numbers are per-key and per-browser — a publisher who
-loses their `localStorage` starts numbering again and readers correctly refuse
-the result as stale.
+Not implemented: the rendezvous swarm, introductions, petnames, flagging, and
+key rotation.
 
 ## Interoperability
 
@@ -486,11 +545,6 @@ noise — signature checks make it correct but not quiet? Joining the rendezvous
 tells the tracker you are interested in that identity, which is a different
 disclosure from asking for an infohash. And is the deterministic construction
 stable enough to specify exactly, across implementations?
-
-**Salt.** BEP 44 allows one, letting a single key run several independent
-series — a site and its changelog, say. Reserved and unused for now; adding it
-later changes the DHT target and the rendezvous construction, so it should be
-decided before anything ships.
 
 **The introduction link format.** `#author=<hex>&name=…` is readable and cannot
 be confused with a magnet or a bare infohash, which are the other things a
