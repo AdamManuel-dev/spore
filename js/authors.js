@@ -9,8 +9,10 @@
  * The name inside a `spore.pub` is a claim the key makes about itself, so it is
  * stored as a claim — never as an identity. Two different keys may both call
  * themselves Lara, and one of them may be lying; the key is the only part that
- * cannot be. Petnames, the reader's own private label for a key, are the answer
- * to that, and belong here when they land.
+ * cannot be. The reader's own name for a key — a petname — is the answer, and
+ * it lives here: it is chosen by the reader, applies to one key, and is never
+ * published. "Lara from work" and "Lara Croft" can then be two entries rather
+ * than one ambiguity.
  *
  * Sequence numbers are kept for a colder reason: BEP 44 replay. A record stays
  * valid forever, so a peer can keep handing you a real, correctly signed
@@ -106,5 +108,64 @@ export function rememberAuthor (keyHex, { claimed, infoHash }) {
   }
 
   authors[keyHex] = { seq: undefined, infoHash, seenAt: Date.now(), ...(claimed ? { claimed } : {}) }
+  save(authors)
+}
+
+/* -------------------------------------------------------------------------- */
+/* Petnames                                                                   */
+/* -------------------------------------------------------------------------- */
+
+const PETNAMES_KEY = 'spore.petnames'
+
+function petnames () {
+  try {
+    const stored = JSON.parse(localStorage.getItem(PETNAMES_KEY) ?? '{}')
+    return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * The reader's own name for a key, if they have given it one.
+ *
+ * Keyed by the key rather than by series: it names a person, and that person is
+ * the same across everything they publish.
+ */
+export function petname (keyHex) {
+  return petnames()[keyHex] ?? null
+}
+
+/** Blank removes it. Renaming is always allowed; this is the reader's own note. */
+export function setPetname (keyHex, name) {
+  const all = petnames()
+  const trimmed = typeof name === 'string' ? name.trim() : ''
+
+  if (trimmed) all[keyHex] = trimmed
+  else delete all[keyHex]
+
+  try {
+    localStorage.setItem(PETNAMES_KEY, JSON.stringify(all))
+  } catch {
+    // The name is a convenience for the reader; failing to keep it is not
+    // worth interrupting them over.
+  }
+}
+
+/**
+ * Drop everything remembered about a key: the petname, and every series of
+ * theirs this browser has version memory for.
+ *
+ * Forgetting the sequence numbers matters as much as forgetting the name. They
+ * are the replay defence, so wiping them puts this browser back to having never
+ * met the author — which is what "forget" has to mean if it means anything.
+ */
+export function forgetAuthor (keyHex) {
+  setPetname(keyHex, '')
+
+  const authors = load()
+  for (const id of Object.keys(authors)) {
+    if (id === keyHex || id.startsWith(`${keyHex}/`)) delete authors[id]
+  }
   save(authors)
 }

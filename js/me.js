@@ -48,9 +48,9 @@ export async function signIn (passphrase) {
  * first and only gets here if they recognised it. Deriving is not a decision;
  * this is.
  */
-export function useIdentity (derived, label) {
+export function useIdentity (derived, names) {
   identity = derived
-  rememberMyKey(derived.hex, label)
+  rememberMyKey(derived.hex, names)
   return { label: labelFor(derived.hex) }
 }
 
@@ -141,7 +141,8 @@ export async function isRemembered () {
  * which makes it noise. Remembering the key instead turns the second sign-in
  * into recognition: the name comes back, or it does not.
  *
- * @returns {Record<string, {label: string|null, firstSeen: number}>}
+ * @returns {Record<string, {label: string|null, publicName: string|null,
+ *                            firstSeen: number, lastUsedAt: number}>}
  */
 function myKeys () {
   try {
@@ -161,14 +162,39 @@ export function labelFor (keyHex) {
   return myKeys()[keyHex]?.label ?? null
 }
 
-/** Blank clears the label; the key itself stays remembered either way. */
-export function rememberMyKey (keyHex, label) {
+/** What this key tells readers it is called, if the publisher gave it a name. */
+export function publicNameFor (keyHex) {
+  return myKeys()[keyHex]?.publicName ?? null
+}
+
+/**
+ * The key used most recently here, so the sign-in dialog can offer it back
+ * rather than making the publisher retype a name they already chose.
+ */
+export function mostRecentKey () {
+  const keys = Object.entries(myKeys())
+  if (keys.length === 0) return null
+
+  const [hex, record] = keys.reduce((best, entry) =>
+    (entry[1].lastUsedAt ?? 0) > (best[1].lastUsedAt ?? 0) ? entry : best)
+  return { hex, ...record }
+}
+
+/**
+ * Blank leaves what is already there; the key itself stays remembered either
+ * way. Blanking is not how a name is changed — a password manager filling an
+ * empty field, or a publisher who simply did not retype, must not silently
+ * erase a name that is doing useful work.
+ */
+export function rememberMyKey (keyHex, { label, publicName } = {}) {
   const keys = myKeys()
-  const trimmed = typeof label === 'string' ? label.trim() : ''
+  const clean = value => (typeof value === 'string' ? value.trim() : '')
 
   keys[keyHex] = {
-    label: trimmed || keys[keyHex]?.label || null,
-    firstSeen: keys[keyHex]?.firstSeen ?? Date.now()
+    label: clean(label) || keys[keyHex]?.label || null,
+    publicName: clean(publicName) || keys[keyHex]?.publicName || null,
+    firstSeen: keys[keyHex]?.firstSeen ?? Date.now(),
+    lastUsedAt: Date.now()
   }
   try {
     localStorage.setItem(MY_KEYS_KEY, JSON.stringify(keys))

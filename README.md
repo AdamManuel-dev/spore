@@ -191,6 +191,30 @@ Three things worth being plain about:
   keep, which is what lets you publish from any machine — but a clock running
   far ahead burns the series until real time catches up.
 
+## Checking who published something
+
+A signed site shows its author in the status bar — their avatar and either the
+name *you* gave them or, in quotes, the name the key claims for itself. Click it
+and you get the whole picture: the fingerprint, the full public key, which of
+their sites you are reading, when this version was published, and whether this
+browser has ever seen the key before.
+
+You can give the author your own name for them. It is stored only in your
+browser, never published, and it replaces their self-declared name everywhere
+you see them. This is the answer to two people both calling themselves Lara: one
+becomes "Lara from work" because you said so, and the other stays a claim in
+quotes.
+
+**A signature proves the key, not the person.** It shows the site was published
+by whoever holds that key and has not been altered since. It says nothing about
+who they are. A site that declares `name=Lara Croft` is making a claim about
+itself, exactly like a caller saying a name on the phone — which is why the gate
+never renders it as plain fact.
+
+Sites nobody signed say **unsigned** rather than showing nothing, because a
+missing signature and a page that has not finished loading should not look the
+same.
+
 The design, the threat model and what is deliberately not built are in
 [spec/mutable-sites.md](spec/mutable-sites.md).
 

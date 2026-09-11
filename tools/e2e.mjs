@@ -828,6 +828,17 @@ async function checkPublishingASuccessor () {
         !!document.getElementById('dropzone')
     }))
 
+  // --- every step can be left ----------------------------------------------
+  // The choose step had no cancel of any kind: once a key was known, Esc was
+  // the only exit from a modal covering the page.
+  await dropFolder('<h1>first</h1>')
+  await publisher.waitForFunction(
+    () => document.getElementById('signin-dialog').open, { timeout: 20_000 })
+  await publisher.click('#signin-dismiss')
+  await wait(500)
+  check('the signing dialog can always be dismissed',
+    await publisher.evaluate(() => !document.getElementById('signin-dialog').open))
+
   // --- publish signed -------------------------------------------------------
   await dropFolder('<h1>first</h1>')
   await publisher.waitForFunction(
@@ -845,6 +856,7 @@ async function checkPublishingASuccessor () {
     /New to this browser/.test(
       await publisher.$eval('#signin-recognised', el => el.textContent)))
 
+  await publisher.type('#signin-public-name', 'Lara from work')
   await publisher.click('#signin-use')
 
   // Confirming the key does not publish: which site this is comes next.
@@ -919,6 +931,38 @@ async function checkPublishingASuccessor () {
   const detail = offered ? await reader.$eval('#update-detail', el => el.textContent) : ''
   check('a reader on the first version is offered the second',
     offered && /Published today/.test(detail), detail || 'no banner')
+
+  // --- the reader can actually check the authorship -------------------------
+  const chip = await reader.evaluate(() => ({
+    shown: !document.getElementById('author').hidden,
+    text: document.getElementById('author-chip-name').textContent
+  }))
+  check('a signed site says so in a way you can click', chip.shown, JSON.stringify(chip))
+
+  await reader.click('#author')
+  await reader.waitForFunction(
+    () => document.getElementById('author-dialog').open, { timeout: 10_000 })
+  const panel = await reader.evaluate(() => ({
+    fingerprint: document.getElementById('author-fingerprint').textContent,
+    facts: [...document.querySelectorAll('#author-facts dt')].map(dt => dt.textContent),
+    values: [...document.querySelectorAll('#author-facts dd')].map(dd => dd.textContent)
+  }))
+  check('the author panel shows the key, not just that one exists',
+    /^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/.test(panel.fingerprint) &&
+    panel.values.some(v => /^[0-9a-f]{64}$/.test(v)),
+    panel.fingerprint)
+  check('it names the site and marks the declared name as a claim',
+    panel.values.includes('blog') &&
+    panel.values.some(v => /Lara from work.*their own claim/.test(v)),
+    JSON.stringify(panel.values.slice(0, 2)))
+
+  // A petname is the reader's answer to two people calling themselves Lara.
+  await reader.type('#author-label', 'Lara from work')
+  await reader.click('#author-close')
+  await wait(300)
+  check('naming an author replaces their self-declared claim in the chip',
+    (await reader.$eval('#author-chip-name', el => el.textContent)) === 'Lara from work',
+    await reader.$eval('#author-chip-name', el => el.textContent))
 
   // --- and a second site under the same key must not replace the first ------
   // The bug this exists for: history was keyed by public key alone, so

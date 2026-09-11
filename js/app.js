@@ -13,15 +13,18 @@ import { InvalidSiteRef, magnetFor, parseSiteRef, webSeedHosts } from './magnet.
 import { scriptsAllowed, servePolicyQueries, setScriptsAllowed } from './policy.js'
 import { checkPublishable, filesFromDrop, filesFromInput, publish } from './publish.js'
 import {
-  REMEMBER_WARNING, knownKey, labelFor, lastPublished, me, nextSeq, publishedSeries,
-  recordPublished, rememberKeyOnDevice, restoreRememberedKey, signIn, signOut, useIdentity
+  REMEMBER_WARNING, knownKey, labelFor, lastPublished, me, mostRecentKey, nextSeq,
+  publicNameFor, publishedSeries, recordPublished, rememberKeyOnDevice,
+  restoreRememberedKey, signIn, signOut, useIdentity
 } from './me.js'
 import { signUpdate } from './record.js'
 import { avatar, fingerprint, formatSporePub, normalizeSite, saltFor } from './identity.js'
 import { entryURL, findEntry, readSporePub } from './site.js'
 import { SiteNotFound, getClient, openTorrent, startClient, startWorker } from './swarm.js'
 import { watchForUpdates } from './updates.js'
-import { author, knownSeq, rememberAuthor, rememberVersion } from './authors.js'
+import {
+  author, forgetAuthor, knownSeq, petname, rememberAuthor, rememberVersion, setPetname
+} from './authors.js'
 import { Viewer } from './viewer.js'
 
 const el = id => document.getElementById(id)
@@ -68,11 +71,24 @@ const ui = {
   listingSummary: el('listing-summary'),
   listingFiles: el('listing-files'),
   saveTorrent: el('save-torrent'),
+  authorChip: el('author'),
+  authorChipAvatar: el('author-chip-avatar'),
+  authorChipName: el('author-chip-name'),
+  authorDialog: el('author-dialog'),
+  authorAvatar: el('author-avatar'),
+  authorPetname: el('author-petname'),
+  authorFingerprint: el('author-fingerprint'),
+  authorFacts: el('author-facts'),
+  authorLabel: el('author-label'),
+  authorForget: el('author-forget'),
+  authorClose: el('author-close'),
+  authorDismiss: el('author-dismiss'),
   diagnose: el('diagnose'),
   diagnostics: el('diagnostics'),
   diagnosticsBody: el('diagnostics-body'),
   diagnosticsReset: el('diagnostics-reset'),
   diagnosticsClose: el('diagnostics-close'),
+  diagnosticsDismiss: el('diagnostics-dismiss'),
   dropzone: el('dropzone'),
   signedIn: el('signed-in'),
   meAvatar: el('me-avatar'),
@@ -106,7 +122,9 @@ const ui = {
   signinRecognised: el('signin-recognised'),
   signinFingerprint: el('signin-fingerprint'),
   signinLabel: el('signin-label'),
+  signinPublicName: el('signin-public-name'),
   signinRemember: el('signin-remember'),
+  signinDismiss: el('signin-dismiss'),
   signinRisk: el('signin-risk'),
   signinBack: el('signin-back'),
   signinUse: el('signin-use'),
@@ -156,9 +174,18 @@ async function boot () {
   ui.signinRisk.addEventListener('click', () => alert(REMEMBER_WARNING))
   ui.updateOpen.addEventListener('click', onUpdateOpen)
   ui.updateDismiss.addEventListener('click', onUpdateDismiss)
+  ui.authorChip.addEventListener('click', showAuthor)
+  ui.authorClose.addEventListener('click', () => ui.authorDialog.close())
+  ui.authorDismiss.addEventListener('click', () => ui.authorDialog.close())
+  // Saved on the way out however it is closed — Done, the ✕, or Esc. A name
+  // typed and then lost to the wrong exit is exactly the kind of small
+  // betrayal that stops people bothering to name anything.
+  ui.authorDialog.addEventListener('close', onAuthorClose)
+  ui.authorForget.addEventListener('click', onForgetAuthor)
   ui.saveTorrent.addEventListener('click', onSaveTorrent)
   ui.diagnose.addEventListener('click', showDiagnostics)
   ui.diagnosticsClose.addEventListener('click', () => ui.diagnostics.close())
+  ui.diagnosticsDismiss.addEventListener('click', () => ui.diagnostics.close())
   ui.diagnosticsReset.addEventListener('click', onReset)
   wireDropTarget()
 
@@ -383,7 +410,13 @@ async function render (torrent, entry) {
 function askAboutSigning (what) {
   ui.signinWhat.textContent = what ?? 'this folder'
   ui.passphrase.value = ''
-  ui.signinLabel.value = ''
+
+  // Offered back rather than asked for again. A publisher who named their key
+  // once should not have to remember what they called it, and a blank field
+  // reads as "this was not saved".
+  const recent = mostRecentKey()
+  ui.signinLabel.value = recent?.label ?? ''
+  ui.signinPublicName.value = recent?.publicName ?? ''
   ui.reveal.checked = false
   ui.passphrase.type = 'password'
   ui.signinError.hidden = true
@@ -438,7 +471,10 @@ function askAboutSigning (what) {
     // a new page being announced as the successor to an old blog.
     const onConfirmed = async () => {
       if (!derived) return
-      useIdentity(derived, ui.signinLabel.value)
+      useIdentity(derived, {
+        label: ui.signinLabel.value,
+        publicName: ui.signinPublicName.value
+      })
 
       if (ui.signinRemember.checked) {
         try {
@@ -491,6 +527,7 @@ function askAboutSigning (what) {
     ui.signinSkip.addEventListener('click', onSkip)
     ui.signinSkipKnown.addEventListener('click', onSkip)
     ui.signinCancel.addEventListener('click', onCancel)
+    ui.signinDismiss.addEventListener('click', onCancel)
     ui.signinDialog.addEventListener('close', onClose)
 
     function cleanup () {
@@ -503,6 +540,7 @@ function askAboutSigning (what) {
       ui.signinSkip.removeEventListener('click', onSkip)
       ui.signinSkipKnown.removeEventListener('click', onSkip)
       ui.signinCancel.removeEventListener('click', onCancel)
+      ui.signinDismiss.removeEventListener('click', onCancel)
       ui.signinDialog.removeEventListener('close', onClose)
     }
   })
@@ -575,6 +613,11 @@ async function showConfirmStep (derived) {
     ? `Recognised — ${known.label ?? 'you have used this key here before'}`
     : 'New to this browser'
   ui.signinRecognised.className = known ? 'recognised' : 'recognised recognised--new'
+
+  // The prefill was a guess from the most recent key; now the key is known, use
+  // what was actually stored for it.
+  if (known?.label) ui.signinLabel.value = known.label
+  if (known?.publicName) ui.signinPublicName.value = known.publicName
 
   showStep(ui.stepConfirm, known ? 'Welcome back' : 'Is this your key?')
 }
@@ -675,12 +718,108 @@ async function nameAuthor (torrent, entry) {
 
   authorship.key = key
   authorship.announceKey(key)
-  if (!key) return
+
+  // Said out loud, because a missing chip and a chip that has not loaded look
+  // identical — and "unsigned" is a real answer to "who published this", not
+  // the absence of one. An unsigned site can never be updated either, which is
+  // worth knowing before bookmarking it.
+  if (!key) {
+    ui.authorChipAvatar.replaceChildren()
+    ui.authorChipName.textContent = 'unsigned'
+    ui.authorChip.title =
+      'Nobody signed this site, so there is no author to check and no newer ' +
+      'version it could ever be replaced by.'
+    ui.authorChip.disabled = true
+    ui.authorChip.hidden = false
+    return
+  }
+  ui.authorChip.disabled = false
 
   // Meeting an author is worth remembering even when no update ever arrives:
   // it is what makes the next meeting recognisable as the same person.
   rememberAuthor(key.hex, { claimed: key.claimedName, infoHash: torrent.infoHash })
-  ui.status.textContent = `${torrent.name ?? torrent.infoHash} · ${key.claimedName ?? 'signed'}`
+  await showAuthorChip(key)
+}
+
+/**
+ * The chip in the status bar: who signed this, and a way to look closer.
+ *
+ * It shows the reader's own name for the key when they have given one, and
+ * falls back to the key's own claim about itself — visibly quoted, because
+ * those two things carry completely different weight and the difference is the
+ * whole point.
+ */
+async function showAuthorChip (key) {
+  const mine = petname(key.hex)
+  ui.authorChipAvatar.replaceChildren(await avatarNode(key.publicKey))
+  ui.authorChipName.textContent = mine ?? (key.claimedName ? `“${key.claimedName}”` : 'signed')
+  ui.authorChip.title = mine
+    ? `Signed by ${mine} — click to check`
+    : 'Signed — click to see who by'
+  ui.authorChip.hidden = false
+}
+
+/**
+ * Everything this browser can honestly say about the key that signed the site
+ * on screen.
+ *
+ * The reader asked to check, so the answer has to include the parts that do not
+ * flatter: what a signature actually proves, that the declared name is the
+ * key's own claim, and whether this key has ever been seen here before.
+ */
+async function showAuthor () {
+  const key = authorship?.key
+  if (!key) return
+
+  const mine = petname(key.hex)
+  const met = author(key.hex)
+  const seenSeq = knownSeq(key.hex, key.site)
+
+  ui.authorAvatar.replaceChildren(await avatarNode(key.publicKey))
+  ui.authorPetname.textContent = mine ?? 'You have not named this author'
+  ui.authorPetname.className = mine ? 'recognised' : 'recognised recognised--new'
+  ui.authorFingerprint.textContent = await fingerprint(key.publicKey)
+  ui.authorLabel.value = mine ?? ''
+  ui.authorForget.hidden = !met && !mine
+
+  const facts = [
+    ['Calls itself', key.claimedName ? `“${key.claimedName}” — their own claim` : 'nothing'],
+    ['Site', key.site ? key.site : 'the author’s default site'],
+    ['Public key', key.hex, 'mono'],
+    ['Version you are reading', seenSeq ? describeVersion(seenSeq) : 'not recorded'],
+    ['Seen here before', met
+      ? `yes, first on ${new Date(met.seenAt).toLocaleDateString()}`
+      : 'no — this is the first time']
+  ]
+
+  ui.authorFacts.replaceChildren(...facts.flatMap(([term, value, className]) => {
+    const dt = document.createElement('dt')
+    dt.textContent = term
+    const dd = document.createElement('dd')
+    dd.textContent = value
+    if (className) dd.className = className
+    return [dt, dd]
+  }))
+
+  ui.authorDialog.showModal()
+}
+
+/** The name is the reader's own note, so it is saved by closing, not by asking. */
+async function onAuthorClose () {
+  const key = authorship?.key
+  if (!key) return
+
+  setPetname(key.hex, ui.authorLabel.value)
+  await showAuthorChip(key)
+}
+
+async function onForgetAuthor () {
+  const key = authorship?.key
+  if (!key) return ui.authorDialog.close()
+
+  forgetAuthor(key.hex)
+  ui.authorDialog.close()
+  await showAuthorChip(key)
 }
 
 function stopWatchingAuthor () {
@@ -688,6 +827,7 @@ function stopWatchingAuthor () {
   authorship?.announceKey?.(null) // release anything waiting, so it is refused
   authorship = null
   ui.update.hidden = true
+  ui.authorChip.hidden = true
 }
 
 /**
@@ -1197,7 +1337,7 @@ function withSporePub (files, site) {
   const path = pathOf(index ?? files[0])
   const root = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : ''
 
-  const contents = formatSporePub(identity.hex, null, site)
+  const contents = formatSporePub(identity.hex, publicNameFor(identity.hex), site)
   const file = new File([contents], 'spore.pub', { type: 'text/plain' })
   file.fullPath = `${root}spore.pub`
   return [...files, file]

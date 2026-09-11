@@ -192,6 +192,15 @@
 
 <footer class="statusbar">
   <span id="status">Starting…</span>
+  <!--
+    Who signed this, and a way in. A signature is only worth anything if the
+    reader can inspect it, and "· signed" as dead text told them a check had
+    happened without letting them make one.
+  -->
+  <button id="author" class="author-chip" type="button" hidden>
+    <span id="author-chip-avatar" class="avatar avatar--chip" aria-hidden="true"></span>
+    <span id="author-chip-name"></span>
+  </button>
   <span id="peers"></span>
   <span id="progress"></span>
   <button id="save-torrent" type="button" class="link" hidden
@@ -210,7 +219,11 @@
   like the one you remember, so it is shown at a size you can compare.
 -->
 <dialog id="signin-dialog">
-  <h2 id="signin-title">Sign this site?</h2>
+  <div class="dialog-head">
+    <h2 id="signin-title">Sign this site?</h2>
+    <button id="signin-dismiss" type="button" class="dismiss"
+            aria-label="Close without publishing">✕</button>
+  </div>
 
   <section id="signin-step-choose" hidden>
     <p class="muted small">Publishing <strong id="signin-what">this folder</strong>.</p>
@@ -312,6 +325,21 @@
        itself, so a mistyped passphrase produces a visibly different one.
        Compare it to what you saw last time.</p>
 
+    <!--
+      What readers see. Distinct from the key name above, which never leaves
+      this browser: this one is written into the site's spore.pub, so it is a
+      claim the key makes about itself in public. Optional, because a key with
+      no name is honest — a fingerprint is still an identity.
+    -->
+    <label class="field">
+      <span class="field-label">Name readers see (optional)</span>
+      <input id="signin-public-name" type="text" spellcheck="false"
+             placeholder="Lara from work">
+    </label>
+    <p class="muted small">Goes in the site's <code>spore.pub</code>. Anyone can
+       claim any name, and readers are shown it as a claim — the fingerprint is
+       the part that cannot be copied.</p>
+
     <label class="reveal remember">
       <input id="signin-remember" type="checkbox">
       <span>Keep this key on this device, and sign everything I publish</span>
@@ -330,8 +358,53 @@
   </section>
 </dialog>
 
+<!--
+  The reader's side of identity. Everything here is about telling apart "this
+  is signed" from "this is signed by someone I have reason to trust", which are
+  different claims and are constantly confused.
+-->
+<dialog id="author-dialog">
+  <div class="dialog-head">
+    <h2>Who published this</h2>
+    <button id="author-dismiss" type="button" class="dismiss" aria-label="Close">✕</button>
+  </div>
+
+  <div class="identity-card">
+    <span id="author-avatar" class="avatar avatar--large" aria-hidden="true"></span>
+    <div>
+      <p id="author-petname" class="recognised"></p>
+      <p id="author-fingerprint" class="fingerprint"></p>
+    </div>
+  </div>
+
+  <dl id="author-facts" class="author-facts"></dl>
+
+  <label class="field">
+    <span class="field-label">What you call them</span>
+    <input id="author-label" type="text" spellcheck="false"
+           placeholder="Lara from work">
+  </label>
+  <p class="muted small">Your name for this key, stored only in this browser and
+     never published. Two people can call themselves the same thing; the key is
+     the part that cannot be copied. Naming one you have reason to trust is how
+     you tell them apart later.</p>
+
+  <p class="muted small"><strong>A signature proves the key, not the person.</strong>
+     It shows this site was published by whoever holds that key, and that it has
+     not been altered since. It says nothing about who they are, and the
+     <code>name=</code> a site declares is their own claim about themselves.</p>
+
+  <div class="dialog-actions">
+    <button id="author-forget" type="button" class="link" hidden>Forget this author</button>
+    <button id="author-close" type="button">Done</button>
+  </div>
+</dialog>
+
 <dialog id="diagnostics">
-  <h2>Diagnostics</h2>
+  <div class="dialog-head">
+    <h2>Diagnostics</h2>
+    <button id="diagnostics-dismiss" type="button" class="dismiss" aria-label="Close">✕</button>
+  </div>
   <dl id="diagnostics-body"></dl>
   <p class="muted small">Reset unregisters Spore's service worker and deletes
      everything it has stored in this browser, including sites kept offline.
