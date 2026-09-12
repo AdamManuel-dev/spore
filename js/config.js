@@ -73,4 +73,4 @@ export const EXPECTED_WORKER_VERSION = '2026-09-10.4'
  * Diagnostics compares this against the copy deployed at the origin the page
  * came from, which turns that question into one line.
  */
-export const GATE_VERSION = '2026-09-12.2'
+export const GATE_VERSION = '2026-09-12.3'

@@ -142,6 +142,15 @@ let statsTimer = null
 /** True once the swarm client exists; until then there is nothing to publish to. */
 let ready = false
 
+// Declared here, with the rest of the module state, rather than beside the
+// function that reads them. `boot()` runs while this module is still being
+// evaluated, so a `const` further down is in its temporal dead zone and the
+// whole gate fails to start. That is twice today; the rule is that anything
+// boot touches is declared above boot.
+/** How often to check that the browser has not taken the worker away. */
+const WORKER_CHECK_MS = 10_000
+let restoringWorker = false
+
 /** Infohashes kept on this device, refreshed whenever the list changes. */
 let keptHashes = new Set()
 
@@ -194,6 +203,7 @@ async function boot () {
   ui.diagnosticsDismiss.addEventListener('click', () => ui.diagnostics.close())
   ui.diagnosticsReset.addEventListener('click', onReset)
   wireDropTarget()
+  watchTheWorker()
 
   try {
     const registration = await startWorker()
@@ -1105,6 +1115,89 @@ function onUpdateOpen () {
 
 function onUpdateDismiss () {
   ui.update.hidden = true
+}
+
+/**
+ * Notice when the browser takes the service worker away, and put it back.
+ *
+ * Spore checked for a controller once, when opening a site, and never again.
+ * That held on desktop and does not on iOS: WebKit evicts registrations under
+ * memory pressure, mid-session, without telling the page. Reported from an
+ * iPhone that had been working minutes earlier and then showed
+ *
+ *     Worker controlling   NO
+ *     Registrations        none
+ *     Viewer response      404, 9379 bytes
+ *
+ * which is the host's own 404, because with nothing intercepting it the
+ * iframe's request goes to the network. From the reader's side: a white page,
+ * and every other indicator green.
+ *
+ * `controllerchange` is not enough on its own, since a registration can be
+ * dropped while the page stays nominally controlled, so the registration list
+ * is what is actually watched.
+ */
+function watchTheWorker () {
+  if (!navigator.serviceWorker) return
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!navigator.serviceWorker.controller) restoreWorker()
+  })
+
+  setInterval(async () => {
+    if (!current || restoringWorker) return
+
+    let registrations = []
+    try {
+      registrations = await navigator.serviceWorker.getRegistrations()
+    } catch {
+      return // a browser blocking site data: nothing to do about it from here
+    }
+
+    if (registrations.length === 0 || !navigator.serviceWorker.controller) {
+      await restoreWorker()
+    }
+  }, WORKER_CHECK_MS)
+}
+
+/**
+ * Re-register, then show the site again.
+ *
+ * Reloading the frame matters as much as re-registering: whatever it is showing
+ * was fetched while nothing was serving, so it is the host's 404 rather than
+ * the site, and it will not correct itself.
+ */
+async function restoreWorker () {
+  if (restoringWorker || !current) return
+  restoringWorker = true
+
+  ui.notice.textContent =
+    'This browser dropped Spore\u2019s service worker, which is what serves sites ' +
+    'from the swarm. Putting it back\u2026'
+  ui.notice.className = 'notice'
+  ui.notice.hidden = false
+
+  try {
+    await startWorker()
+
+    // Re-open rather than just re-point the frame: the torrent is already in
+    // the client, so this costs nothing and goes through the same path as a
+    // first open, including the check that there is a controller at all.
+    const ref = current.ref
+    current = null
+    ui.notice.hidden = true
+    await route()
+    console.warn('Spore: the service worker was dropped and has been restored for', ref)
+  } catch (err) {
+    ui.notice.textContent =
+      'This browser dropped Spore\u2019s service worker and will not register it ' +
+      `again (${err.message}). Sites cannot be displayed until it does. ` +
+      'Reloading the page usually fixes it.'
+    ui.notice.className = 'notice notice--error'
+    ui.notice.hidden = false
+  } finally {
+    restoringWorker = false
+  }
 }
 
 /**

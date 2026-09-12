@@ -315,6 +315,7 @@ async function run () {
   await checkContentSignature()
   await checkKeptSiteHearsUpdates()
   await checkReadersPassItOn()
+  await checkWorkerIsPutBack()
 }
 
 /**
@@ -1029,6 +1030,63 @@ async function checkPublishingASuccessor () {
   const stillOnBlog = await reader.evaluate(() => location.hash)
   check('a second site under the same key does not replace the first',
     still === detail && stillOnBlog.includes(v1), `${still.slice(0, 60)} | ${stillOnBlog.slice(0, 30)}`)
+}
+
+/**
+ * A browser that throws the service worker away must not leave a dead page.
+ *
+ * Reported from an iPhone, and the diagnostics were unambiguous: worker not
+ * controlling, no registrations at all, and a viewer response of 404 with 9379
+ * bytes, which is the host's own error page. WebKit evicts registrations under
+ * memory pressure mid-session. Spore checked for a controller once, when
+ * opening the site, so nothing noticed and the reader was left with a white
+ * page and a panel full of green.
+ *
+ * Unregistering here stands in for the eviction. A browser cannot be made to
+ * drop a worker on demand, but the state that follows is the same one, and it
+ * is the state that has to be survivable.
+ */
+async function checkWorkerIsPutBack () {
+  const page = await browser.createBrowserContext().then(c => c.newPage())
+  await page.goto(origin + '/', { waitUntil: 'load' })
+  await page.waitForFunction(
+    () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+
+  const magnet = await page.evaluate(async () => {
+    const { publish } = await import('/js/publish.js')
+    const index = new File(['<h1>worker watchdog</h1>'], 'index.html', { type: 'text/html' })
+    index.fullPath = 'watchdog/index.html'
+    const style = new File(['body{color:#111}'], 'style.css', { type: 'text/css' })
+    style.fullPath = 'watchdog/style.css'
+    return (await publish([index, style], 'watchdog')).magnetURI
+  })
+  await page.evaluate(m => { location.hash = m }, magnet)
+  await page.waitForFunction(
+    () => !document.getElementById('viewer').hidden, { timeout: 30_000 })
+
+  // The eviction.
+  await page.evaluate(async () => {
+    for (const registration of await navigator.serviceWorker.getRegistrations()) {
+      await registration.unregister()
+    }
+  })
+  check('the registration really went away',
+    (await page.evaluate(() => navigator.serviceWorker.getRegistrations().then(r => r.length))) === 0)
+
+  // The watchdog runs on a timer, so this waits rather than polls once.
+  const back = await page.waitForFunction(
+    () => navigator.serviceWorker.getRegistrations().then(r => r.length > 0),
+    { timeout: 60_000 }).then(() => true).catch(() => false)
+  check('the gate notices and registers it again', back)
+
+  const showing = await page.waitForFunction(() => {
+    const frame = document.getElementById('viewer')
+    return !frame.hidden && frame.src.includes('/webtorrent/')
+  }, { timeout: 60_000 }).then(() => true).catch(() => false)
+  check('and the site is showing again afterwards', showing,
+    showing ? '' : await page.$eval('#status', el => el.textContent))
+
+  await page.close()
 }
 
 /**
