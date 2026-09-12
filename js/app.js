@@ -216,7 +216,12 @@ async function boot () {
   // The cost is a race: landing directly on a kept site can add a second,
   // memory-backed copy of a torrent already being restored. WebTorrent returns
   // the existing torrent for a duplicate infohash, so the loser is discarded.
-  restoreKept()
+  // Storage can fail in ways that are not our doing — Safari throwing
+  // UnknownError under pressure, a private window, a browser blocking site
+  // data. Unhandled, that was an uncaught rejection at boot and a silent loss
+  // of every kept site.
+  restoreKept().catch(err =>
+    console.warn('Spore: kept sites could not be restored:', err))
 
   // Same reasoning: a key kept on this device is a convenience for publishing,
   // and nothing on the reading path waits for it.
@@ -316,6 +321,7 @@ async function open (ref) {
     }
 
     current = { torrent, ref }
+    watchForTrouble(torrent, ref)
 
     // A torrent without an index.html is not a broken site, it is not a site.
     // Refusing it outright made a whole category of torrent — an archive, an
@@ -326,6 +332,36 @@ async function open (ref) {
     stopJoining()
     fail(err)
   }
+}
+
+/**
+ * A torrent can fail after it is open, and until now nothing said so.
+ *
+ * `withMetadata` listens for `error` only until metadata arrives, then drops
+ * the listener. Anything that goes wrong afterwards — a storage layer refusing
+ * to write, a store that cannot be read back — left the reader with an empty
+ * frame, a healthy-looking status bar and green diagnostics, which is an
+ * unreportable failure. It was reported exactly that way from an iPhone.
+ *
+ * The message is shown verbatim rather than translated into something
+ * reassuring: the whole value of it is that the reader can quote it back.
+ */
+function watchForTrouble (torrent, ref) {
+  const onError = err => {
+    if (current?.ref !== ref) return
+
+    const message = String(err?.message ?? err)
+    console.error('Spore: the torrent failed after it was open:', err)
+
+    ui.notice.textContent =
+      `This site stopped working after it loaded: ${message}. ` +
+      'That is a failure inside the browser rather than the swarm, so ' +
+      'Diagnostics will probably look healthy. The message above is the useful part.'
+    ui.notice.className = 'notice notice--error'
+    ui.notice.hidden = false
+  }
+
+  torrent.on('error', onError)
 }
 
 /**

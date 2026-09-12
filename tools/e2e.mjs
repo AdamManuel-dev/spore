@@ -311,6 +311,7 @@ async function run () {
   await checkRememberedKey()
   await checkSlowSwarm()
   await checkMobileLayout()
+  await checkLateFailureIsVisible()
 }
 
 /**
@@ -1022,6 +1023,50 @@ async function checkPublishingASuccessor () {
   const stillOnBlog = await reader.evaluate(() => location.hash)
   check('a second site under the same key does not replace the first',
     still === detail && stillOnBlog.includes(v1), `${still.slice(0, 60)} | ${stillOnBlog.slice(0, 30)}`)
+}
+
+/**
+ * A site that breaks after it opens must say so.
+ *
+ * Reported from an iPhone: a blank page, every diagnostic green, nothing to
+ * quote. The cause was that `withMetadata` stops listening for `error` once
+ * metadata arrives, so a torrent failing later — a storage layer refusing to
+ * write is the realistic case, and WebKit throws exactly that — took the site
+ * down silently. An unreportable failure is worse than a loud one.
+ */
+async function checkLateFailureIsVisible () {
+  const page = await browser.createBrowserContext().then(c => c.newPage())
+  await page.goto(origin + '/', { waitUntil: 'load' })
+  await page.waitForFunction(
+    () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+
+  const magnet = await page.evaluate(async () => {
+    const { publish } = await import('/js/publish.js')
+    const index = new File(['<h1>late failure</h1>'], 'index.html', { type: 'text/html' })
+    index.fullPath = 'late-fail/index.html'
+    const style = new File(['body{color:#111}'], 'style.css', { type: 'text/css' })
+    style.fullPath = 'late-fail/style.css'
+    return (await publish([index, style], 'late-fail')).magnetURI
+  })
+  await page.evaluate(m => { location.hash = m }, magnet)
+  await page.waitForFunction(
+    () => !document.getElementById('viewer').hidden, { timeout: 30_000 })
+
+  // Exactly what WebKit produced when its storage gave up mid-read.
+  await page.evaluate(async () => {
+    const { getClient } = await import('/js/swarm.js')
+    const torrent = getClient().torrents[getClient().torrents.length - 1]
+    torrent.emit('error', new Error(
+      'The operation failed for an unknown transient reason (e.g. out of memory).'))
+  })
+  await wait(500)
+
+  const notice = await page.$eval('#notice', el => el.hidden ? '' : el.textContent)
+  check('a site that fails after opening says so, quoting the error',
+    /stopped working after it loaded/.test(notice) &&
+    /unknown transient reason/.test(notice),
+    notice.slice(0, 90))
+  await page.close()
 }
 
 /**
