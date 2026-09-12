@@ -314,6 +314,7 @@ async function run () {
   await checkLateFailureIsVisible()
   await checkContentSignature()
   await checkKeptSiteHearsUpdates()
+  await checkReadersPassItOn()
 }
 
 /**
@@ -1028,6 +1029,98 @@ async function checkPublishingASuccessor () {
   const stillOnBlog = await reader.evaluate(() => location.hash)
   check('a second site under the same key does not replace the first',
     still === detail && stillOnBlog.includes(v1), `${still.slice(0, 60)} | ${stillOnBlog.slice(0, 30)}`)
+}
+
+/**
+ * Having been told is what qualifies you to tell.
+ *
+ * A swarm's publisher is one peer among many, and a reader holding a complete
+ * copy is rarely introduced to it: measured against a live swarm, a complete
+ * client sat with two peers for two minutes and never met the seeder, however
+ * often it re-announced. If the publisher is the only source of the news, those
+ * readers never get it.
+ *
+ * They should not have to. A reader who has taken an update holds the record,
+ * and handing it on costs nothing. Until this check existed the opposite
+ * happened: taking an update tore down the watcher on the version it replaced,
+ * so a reader stopped telling anyone the moment they had been told.
+ *
+ * Staged with the publisher gone, which is the case that matters.
+ */
+async function checkReadersPassItOn () {
+  const publisher = await browser.createBrowserContext().then(c => c.newPage())
+  const first = await browser.createBrowserContext().then(c => c.newPage())
+  const second = await browser.createBrowserContext().then(c => c.newPage())
+
+  for (const page of [publisher, first, second]) {
+    await page.goto(origin + '/', { waitUntil: 'load' })
+    await page.waitForFunction(
+      () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+  }
+
+  const published = await publisher.evaluate(async () => {
+    const { createIdentity, formatSporePub, saltFor } = await import('/js/identity.js')
+    const { seedTorrent } = await import('/js/swarm.js')
+    const { signUpdate } = await import('/js/record.js')
+    const { watchForUpdates } = await import('/js/updates.js')
+
+    const me = await createIdentity()
+    const pub = formatSporePub(me.hex, 'Relay Author', 'relay')
+    const version = async (body, name) => {
+      const files = [
+        new File([body], 'index.html', { type: 'text/html' }),
+        new File([pub], 'spore.pub', { type: 'text/plain' })
+      ]
+      files[0].fullPath = `${name}/index.html`
+      files[1].fullPath = `${name}/spore.pub`
+      return await seedTorrent(files, { name })
+    }
+    const v1 = await version('<h1>relay one</h1>', 'relay-v1')
+    const v2 = await version('<h1>relay two</h1>', 'relay-v2')
+    const record = await signUpdate(
+      me.privateKey, me.publicKey, v2.infoHash, Date.now(), saltFor('relay'))
+
+    watchForUpdates(v1, {
+      publicKey: () => me.publicKey,
+      salt: () => saltFor('relay'),
+      offer: () => record,
+      currentInfoHash: () => v1.infoHash,
+      onUpdate: () => {}
+    })
+    return { magnet: v1.magnetURI, v1: v1.infoHash, v2: v2.infoHash }
+  })
+
+  // The first reader hears it from the publisher, and takes it.
+  await first.evaluate(m => { location.hash = m }, published.magnet)
+  let told = false
+  for (let waited = 0; waited < 60_000 && !told; waited += 2000) {
+    await wait(2000)
+    told = await first.$eval('#update', el => !el.hidden).catch(() => false)
+  }
+  check('the first reader is told by the publisher', told)
+  if (told) await first.click('#update-open')
+  await wait(3000)
+
+  // Now the publisher leaves. Everything anyone learns from here comes from a
+  // reader who was told.
+  await publisher.close()
+  await wait(2000)
+
+  await second.evaluate(m => { location.hash = m }, published.magnet)
+  let passed = false
+  for (let waited = 0; waited < 90_000 && !passed; waited += 2000) {
+    await wait(2000)
+    passed = await second.$eval('#update', el => !el.hidden).catch(() => false)
+  }
+  check('a reader who took an update passes it to the next reader',
+    passed,
+    passed ? '' : await second.evaluate(() => ({
+      status: document.getElementById('status').textContent,
+      hash: location.hash.slice(0, 30)
+    })).then(JSON.stringify))
+
+  await first.close()
+  await second.close()
 }
 
 /**

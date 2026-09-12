@@ -38,8 +38,12 @@ const MAX_RECORD_BYTES = 2048
  *   answer exists, rather than dropping it or, far worse, trusting it.
  * @param {() => (object|null)} options.offer
  *   The record to hand to peers, if we are holding one.
- * @param {(update: { infoHash: string, seq: number }) => void} options.onUpdate
- *   Called once per verified, accepted record.
+ * @param {(update: { infoHash: string, seq: number, record: object }) => void} options.onUpdate
+ *   Called once per verified, accepted record. The record itself is handed
+ *   back so the caller can pass it on: a reader who has been told is the
+ *   cheapest possible source for the next reader, and in a swarm where the
+ *   publisher's own seeder is one peer among many, often the only reachable
+ *   one.
  * @param {() => (Uint8Array|null|Promise<Uint8Array|null>)} [options.salt]
  *   The series this site belongs to, from its `spore.pub`. Resolved the same
  *   way and for the same reason as the key: it is unknown until the file can
@@ -109,7 +113,7 @@ export function updateExtension (options) {
       })
 
       if (!result.ok) return onRejected(result.reason)
-      onUpdate({ infoHash: result.infoHash, seq: result.seq })
+      onUpdate({ infoHash: result.infoHash, seq: result.seq, record })
     }
   }
 

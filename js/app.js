@@ -720,45 +720,80 @@ async function restoreIdentity () {
  * the record travels over the wire between peers instead. Same record, same
  * signature, different envelope. See spec/mutable-sites.md.
  */
+/**
+ * Records this browser can pass on, keyed by `<key hex>/<site>`.
+ *
+ * A reader who has been told is the cheapest source for the next reader, and
+ * frequently the only reachable one: a swarm's publisher is a single peer among
+ * many, and a reader holding a complete copy is rarely introduced to it. Until
+ * this existed the news had exactly one source, which is not what a peer to
+ * peer design is for.
+ */
+const knownRecords = new Map()
+
+/** One watcher per torrent, kept for the torrent's life rather than the page's. */
+const watchers = new Map()
+
+const seriesOf = key => `${key.hex}/${key.site ?? ''}`
+
+/**
+ * Listen for successors on a torrent, and pass on anything heard.
+ *
+ * Deliberately outlives the view. Navigating away used to tear this down, so a
+ * reader who took an update immediately stopped telling anybody else about it
+ * while still seeding the version it superseded. Exactly backwards: having been
+ * told is what qualifies you to tell.
+ */
+function watchTorrentForUpdates (torrent) {
+  if (watchers.has(torrent)) return watchers.get(torrent)
+
+  let announceKey
+  const entry = { key: null, announceKey: null }
+  const ready = new Promise(resolve => { announceKey = resolve })
+
+  entry.announceKey = key => {
+    entry.key = key
+    announceKey(key)
+  }
+
+  entry.stop = watchForUpdates(torrent, {
+    publicKey: () => ready.then(k => k?.publicKey ?? null),
+    salt: () => ready.then(k => k?.salt ?? null),
+
+    // Synchronous, because it is answered during the handshake. Whatever this
+    // browser has been told about this series, it offers.
+    offer: () => entry.key ? knownRecords.get(seriesOf(entry.key))?.record ?? null : null,
+
+    knownSeq: () => entry.key ? knownSeq(entry.key.hex, entry.key.site) : undefined,
+    currentInfoHash: () => torrent.infoHash,
+    onRejected: reason => console.debug('Spore: refused an update —', reason),
+
+    onUpdate: update => {
+      if (!entry.key) return
+      const series = seriesOf(entry.key)
+      const held = knownRecords.get(series)
+      if (!held || update.seq >= held.seq) knownRecords.set(series, update)
+
+      // Only the site actually on screen gets to interrupt the reader.
+      if (authorship?.torrent === torrent) offerUpdate(entry.key, update)
+    }
+  })
+
+  watchers.set(torrent, entry)
+  torrent.once('close', () => watchers.delete(torrent))
+  return entry
+}
+
 function watchAuthor (torrent) {
-  // Both the restore and the open hand us the same torrent, and the first
-  // attach is the one that matters: it is the one whose advertisement went out
-  // with the handshake. Tearing it down and replacing it would resolve its key
-  // promise to null, so any record already in flight would be refused.
   if (authorship?.torrent === torrent) return
 
   stopWatchingAuthor()
 
-  // The key is not known yet and cannot be: reading `spore.pub` needs metadata,
-  // and by the time metadata arrives every peer already in the swarm has
-  // handshaked. BEP 10 advertises capabilities once, in that handshake, so a
-  // watcher attached any later is invisible to exactly the peers most likely to
-  // be holding an update. Attach now; answer the question when it can be
-  // answered.
-  let announceKey
-  const key = new Promise(resolve => { announceKey = resolve })
-
-  const stop = watchForUpdates(torrent, {
-    publicKey: () => key.then(k => k?.publicKey ?? null),
-
-    // Which of this author's sites we are reading. A record for another of
-    // their series is authentic and about something else entirely.
-    salt: () => key.then(k => k?.salt ?? null),
-
-    // A reader forwards what it was given. Passing on a record that verified
-    // here costs nothing and is how a swarm of readers keeps an update
-    // circulating after the publisher's own seeder goes away.
-    offer: () => authorship?.offered ?? null,
-
-    knownSeq: () => authorship?.key
-      ? knownSeq(authorship.key.hex, authorship.key.site)
-      : undefined,
-    currentInfoHash: () => torrent.infoHash,
-    onRejected: reason => console.debug('Spore: refused an update —', reason),
-    onUpdate: update => { if (authorship?.key) offerUpdate(authorship.key, update) }
-  })
-
-  authorship = { torrent, key: null, stop, offered: null, announceKey }
+  // The listening is the torrent's, not the view's: `watchTorrentForUpdates`
+  // attaches once, before any handshake, and keeps going after the reader has
+  // moved on. This only records which torrent the chrome is currently about.
+  watchTorrentForUpdates(torrent)
+  authorship = { torrent, key: null, offered: null }
 }
 
 /**
@@ -775,7 +810,7 @@ async function nameAuthor (torrent, entry) {
   if (!authorship || current?.torrent !== torrent) return
 
   authorship.key = key
-  authorship.announceKey(key)
+  watchTorrentForUpdates(torrent).announceKey(key)
 
   // Said out loud, because a missing chip and a chip that has not loaded look
   // identical — and "unsigned" is a real answer to "who published this", not
@@ -968,9 +1003,14 @@ async function onForgetAuthor () {
   await showAuthorChip(key)
 }
 
+/**
+ * Forget what the chrome is showing. The swarm listening continues.
+ *
+ * These used to be the same act, which meant that taking an update stopped you
+ * telling anyone else about it, while you went on seeding the version it
+ * replaced. A reader who has been told is the best source there is.
+ */
 function stopWatchingAuthor () {
-  authorship?.stop()
-  authorship?.announceKey?.(null) // release anything waiting, so it is refused
   authorship = null
   ui.update.hidden = true
   ui.authorChip.hidden = true
@@ -1568,24 +1608,25 @@ async function announceSuccessor (torrent, site) {
   const record = await signUpdate(
     identity.privateKey, identity.publicKey, torrent.infoHash, seq, saltFor(site))
 
+  // Put it where everything else offers from, rather than attaching a second
+  // watcher of its own. Publishing and having been told are the same thing from
+  // the swarm's point of view: you hold a record and you hand it out.
+  knownRecords.set(`${identity.hex}/${site ?? ''}`, {
+    infoHash: torrent.infoHash, seq, record
+  })
+
   const old = getClient().torrents.find(t => t.infoHash === previous.infoHash)
   if (old) {
-    // Kept alive for the life of the tab. Every peer that joins the old swarm
-    // from now on is told, once, at its handshake.
-    announcing.push(watchForUpdates(old, {
-      publicKey: () => identity.publicKey,
-      salt: () => saltFor(site),
-      offer: () => record,
-      currentInfoHash: () => old.infoHash,
-      onUpdate: () => {}
-    }))
+    watchTorrentForUpdates(old).announceKey({
+      hex: identity.hex,
+      publicKey: identity.publicKey,
+      site,
+      salt: saltFor(site)
+    })
   }
 
   return { site, reaching: Boolean(old) }
 }
-
-/** Watchers offering successors, held so they are not collected. @type {Array<() => void>} */
-const announcing = []
 
 function showSuccessorNote ({ site, reaching }) {
   // Beside the share link, not in the notice bar. Publishing navigates to the
