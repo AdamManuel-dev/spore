@@ -312,6 +312,7 @@ async function run () {
   await checkSlowSwarm()
   await checkMobileLayout()
   await checkLateFailureIsVisible()
+  await checkContentSignature()
 }
 
 /**
@@ -992,8 +993,11 @@ async function checkPublishingASuccessor () {
   await reader.type('#author-label', 'Lara from work')
   await reader.click('#author-close')
   await wait(300)
+  // Contains rather than equals: the chip also carries a mark for whether the
+  // content signature checked out, which is a different claim from the name.
   check('naming an author replaces their self-declared claim in the chip',
-    (await reader.$eval('#author-chip-name', el => el.textContent)) === 'Lara from work',
+    (await reader.$eval('#author-chip-name', el => el.textContent)).includes('Lara from work') &&
+    !(await reader.$eval('#author-chip-name', el => el.textContent)).includes('“'),
     await reader.$eval('#author-chip-name', el => el.textContent))
 
   // --- and a second site under the same key must not replace the first ------
@@ -1023,6 +1027,115 @@ async function checkPublishingASuccessor () {
   const stillOnBlog = await reader.evaluate(() => location.hash)
   check('a second site under the same key does not replace the first',
     still === detail && stillOnBlog.includes(v1), `${still.slice(0, 60)} | ${stillOnBlog.slice(0, 30)}`)
+}
+
+/**
+ * Declaring a key must not be the same as holding one.
+ *
+ * Asked plainly by a reader of the spec: "anyone can download a .pub file, put
+ * it with other files and publish under my name?" They could, and nothing
+ * caught it. A copied `spore.pub` declares a real key, so a reader comparing
+ * the fingerprint against the real person's got a match, and the site passed
+ * every check Spore had.
+ *
+ * `spore.sig` signs every other file, so the three cases below are now
+ * distinguishable: signed and intact, declared but unproven, and contradicted.
+ */
+async function checkContentSignature () {
+  const page = await browser.createBrowserContext().then(c => c.newPage())
+  page.on('dialog', d => d.accept('a phrase for the signing check'))
+  await page.goto(origin + '/', { waitUntil: 'load' })
+  await page.waitForFunction(
+    () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+
+  // --- an honestly published site ------------------------------------------
+  const real = await page.evaluate(async () => {
+    const { identityFromPassphrase, formatSporePub } = await import('/js/identity.js')
+    const { manifestEntries, signManifest } = await import('/js/manifest.js')
+    const { seedTorrent } = await import('/js/swarm.js')
+
+    const me = await identityFromPassphrase('a phrase for the signing check')
+    const pub = formatSporePub(me.hex, 'The Real Author', 'signed-site')
+    const enc = new TextEncoder()
+    const described = [
+      { path: 'index.html', bytes: enc.encode('<h1>the real thing</h1>') },
+      { path: 'style.css', bytes: enc.encode('body{color:#111}') },
+      { path: 'spore.pub', bytes: enc.encode(pub) }
+    ]
+    const sig = await signManifest(me.privateKey, {
+      key: me.hex, site: 'signed-site', entries: await manifestEntries(described)
+    })
+
+    const files = described.map(d => {
+      const f = new File([d.bytes], d.path.split('/').pop(), { type: 'text/plain' })
+      f.fullPath = `signed-site/${d.path}`
+      return f
+    })
+    const sigFile = new File([sig], 'spore.sig', { type: 'text/plain' })
+    sigFile.fullPath = 'signed-site/spore.sig'
+
+    const torrent = await seedTorrent([...files, sigFile], { name: 'signed-site' })
+    return { magnet: torrent.magnetURI, key: me.hex, pub, sig }
+  })
+
+  await page.evaluate(m => { location.hash = m }, real.magnet)
+  await page.waitForFunction(
+    () => document.getElementById('author')?.dataset.state &&
+          document.getElementById('author').dataset.state !== 'checking',
+    { timeout: 40_000 })
+  check('a site whose files match its signature reads as verified',
+    await page.$eval('#author', el => el.dataset.state === 'verified'),
+    await page.$eval('#author', el => el.dataset.state))
+
+  // --- the impersonation: somebody else's spore.pub, their own words -------
+  const fake = await page.evaluate(async pub => {
+    const { seedTorrent } = await import('/js/swarm.js')
+    const files = [
+      new File(['<h1>words the key never wrote</h1>'], 'index.html', { type: 'text/html' }),
+      new File([pub], 'spore.pub', { type: 'text/plain' })
+    ]
+    files[0].fullPath = 'impostor/index.html'
+    files[1].fullPath = 'impostor/spore.pub'
+    return (await seedTorrent(files, { name: 'impostor' })).magnetURI
+  }, real.pub)
+
+  await page.evaluate(() => { location.hash = '' })
+  await wait(500)
+  await page.evaluate(m => { location.hash = m }, fake)
+  await page.waitForFunction(
+    () => document.getElementById('author')?.dataset.state &&
+          document.getElementById('author').dataset.state !== 'checking',
+    { timeout: 40_000 })
+  check('a copied spore.pub with different content is not called verified',
+    await page.$eval('#author', el => el.dataset.state === 'unverified'),
+    await page.$eval('#author', el => el.dataset.state))
+
+  // --- and the same trick carrying the real signature too -------------------
+  const tampered = await page.evaluate(async ({ pub, sig }) => {
+    const { seedTorrent } = await import('/js/swarm.js')
+    const files = [
+      // The signature is real, the bytes are not the ones it covers.
+      new File(['<h1>the real thing, edited</h1>'], 'index.html', { type: 'text/html' }),
+      new File(['body{color:#111}'], 'style.css', { type: 'text/css' }),
+      new File([pub], 'spore.pub', { type: 'text/plain' }),
+      new File([sig], 'spore.sig', { type: 'text/plain' })
+    ]
+    const names = ['index.html', 'style.css', 'spore.pub', 'spore.sig']
+    files.forEach((f, i) => { f.fullPath = `tampered/${names[i]}` })
+    return (await seedTorrent(files, { name: 'tampered' })).magnetURI
+  }, { pub: real.pub, sig: real.sig })
+
+  await page.evaluate(() => { location.hash = '' })
+  await wait(500)
+  await page.evaluate(m => { location.hash = m }, tampered)
+  await page.waitForFunction(
+    () => document.getElementById('author')?.dataset.state &&
+          document.getElementById('author').dataset.state !== 'checking',
+    { timeout: 40_000 })
+  const state = await page.$eval('#author', el => el.dataset.state)
+  check('altering a file under a real signature is caught and shown as broken',
+    state === 'broken', state)
+  await page.close()
 }
 
 /**

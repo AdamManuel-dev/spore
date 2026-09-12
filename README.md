@@ -208,11 +208,34 @@ you see them. This is the answer to two people both calling themselves Lara: one
 becomes "Lara from work" because you said so, and the other stays a claim in
 quotes.
 
-**A signature proves the key, not the person.** It shows the site was published
-by whoever holds that key and has not been altered since. It says nothing about
-who they are. A site that declares `name=Lara Croft` is making a claim about
-itself, exactly like a caller saying a name on the phone — which is why the gate
-never renders it as plain fact.
+**Be clear about what the key proves, because it is less than it looks.**
+`spore.pub` is an ordinary file in the torrent. Anyone can put any public key in
+a folder and publish it, so its presence does not show that whoever built the
+site holds the matching private key. Nothing signs the content itself.
+
+What it names is the only key whose *successors* this site will accept, and the
+signature lives on the update record rather than on the page. So a first version
+is unauthenticated, trust on first use; someone can copy a site, swap in their
+own key and keep the claimed name, producing a different site at a different
+address that the protocol cannot tell you is a copy; but nobody can update a
+site they do not hold the declared key for, because an update is refused unless
+its key matches the one already in front of the reader.
+
+A site that also ships **`spore.sig`** closes most of that. It lists every other
+file with the hash of its bytes and signs the list, so copying somebody's key
+into a folder of your own text no longer passes: the gate shows **verified**
+only when every file matches what that key signed, **declared** when a key is
+claimed with nothing behind it, and **broken** when they disagree. It is checked
+offline, from the torrent alone, on a first read. Publishing from the gate or
+with `tools/seed.mjs` writes it automatically.
+
+What is left is narrow: *whoever holds the key a site declared is exactly who
+can move that site's readers forward, and a verified site is exactly the bytes
+that key signed.* Whether it is the key you meant to follow
+is settled out of band, by comparing the fingerprint with one you got from
+somewhere you already trust. That is what the fingerprint and the petname are
+for, and it is why a declared `name=Lara Croft` is shown in quotes as a claim
+rather than as a fact.
 
 Sites nobody signed say **unsigned** rather than showing nothing, because a
 missing signature and a page that has not finished loading should not look the

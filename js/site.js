@@ -86,3 +86,35 @@ export async function readSporePub (torrent, entryPath) {
     return null
   }
 }
+
+/**
+ * The signed manifest a site ships, if it ships one.
+ *
+ * Beside `index.html` like `spore.pub`, and read the same way: a file in one
+ * directory does not get to vouch for a different directory's contents.
+ *
+ * @returns {Promise<{contents: string, root: string}|null>}
+ */
+export async function readManifest (torrent, entryPath) {
+  const root = entryPath.includes('/') ? entryPath.slice(0, entryPath.lastIndexOf('/') + 1) : ''
+  const file = torrent.files.find(f => normalize(f.path) === `${root}spore.sig`)
+  if (!file) return null
+
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    // A manifest is one line per file. Something far larger is not one, and
+    // hashing it to find that out would be the wrong order of operations.
+    if (bytes.length > 512 * 1024) return null
+    return { contents: new TextDecoder().decode(bytes), root }
+  } catch {
+    return null
+  }
+}
+
+/** Site-relative paths of everything in the torrent, for manifest comparison. */
+export function filePaths (torrent, root) {
+  return torrent.files
+    .map(file => normalize(file.path))
+    .filter(path => path.startsWith(root))
+    .map(path => path.slice(root.length))
+}

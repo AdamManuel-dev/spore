@@ -75,6 +75,91 @@ A site without `spore.pub` is immutable and any update message concerning it
 The key is deliberately carried in the content rather than only in the magnet,
 so that a link reshared as a bare infohash still carries the identity.
 
+### What its presence does not prove
+
+This is the easiest thing here to get wrong, so it is worth stating flatly:
+**`spore.pub` is not a signature over the site.** Nothing signs the torrent.
+The file is ordinary content, and anyone can put any public key in a folder and
+publish it. Its presence says nothing about whether whoever built the torrent
+holds the matching private key.
+
+What it establishes is *continuity*, not origin. It names the only key whose
+successors this site will accept, and the signature that exists lives on the
+update record, not on the content. Three consequences follow, and readers are
+entitled to all of them:
+
+- **A first version is unauthenticated.** Trust on first use, exactly as with a
+  stranger on the telephone saying a name.
+- **Impersonation is possible.** Copy a site, replace `spore.pub` with your own
+  key, keep the `name=`, publish. Different bytes mean a different infohash, so
+  it is a different site at a different address, but nothing inside the protocol
+  tells a reader which one was the original.
+- **Hijacking is not.** An impostor cannot update somebody else's site: rule 2
+  requires the record's key to equal the key in the `spore.pub` the reader
+  already has, and putting the victim's key in a copy yields a site the
+  impostor can never sign a successor for.
+
+So the property is narrow and worth saying in one sentence: *the people who can
+move the readers of a given site forward are exactly the holders of the key that
+site declared.* Whether that key is the one you meant to follow is a question
+this protocol cannot answer, and must be settled out of band, by comparing a
+fingerprint against one obtained from somewhere already trusted.
+
+Half of that gap is closed by `spore.sig`, below: it makes *declaring* a key
+different from *holding* one, so the impersonation above is detectable offline
+from the torrent alone. What remains out of band is only the last step, whether
+the key is the one you meant, and no protocol answers that.
+
+## `spore.sig`
+
+A site **should** also carry `spore.sig` beside `spore.pub`: a list of every
+other file with the SHA-256 of its bytes, signed with the declared key.
+
+```
+spore-sig/1
+key=<64 hex>
+site=<series name, omitted when there is none>
+<64 hex sha256> <path>
+<64 hex sha256> <path>
+sig=<base64 ed25519 signature>
+```
+
+- Entries cover every file in the site **except `spore.sig` itself**, which is
+  why there is no circularity: the manifest signs the others, and the infohash
+  then covers the manifest.
+- Paths are relative to the directory holding `spore.pub`, not to the torrent.
+  A torrent's name is metadata, and renaming a site must not invalidate what
+  its author signed.
+- Entries are sorted by path compared as raw UTF-8 bytes, so two
+  implementations produce the same file for the same input.
+- The signature covers every byte before `sig=`, including the trailing
+  newline. A verifier re-derives that region from the file it received rather
+  than rebuilding it from parsed fields, so what is checked is what was sent.
+
+A client presents three distinct states, and **must not** collapse them:
+
+| State | Meaning |
+| --- | --- |
+| verified | every file present matches the manifest, and the manifest verifies under the declared key |
+| declared | `spore.pub` is present, `spore.sig` is absent: a claim with nothing behind it |
+| broken | the signature fails, a file does not match, a listed file is missing, or a file is present that the manifest never covered |
+
+A file in the torrent that the manifest does not list is a failure, not an
+omission: it is content travelling under a signature that never covered it.
+
+This makes the first version of a site checkable, which the update record alone
+never did. It needs no peer to serve anything extra, no DHT, and no prior
+knowledge of the site.
+
+The design that would close the remaining step is [BEP 46][]: address a site by
+`(key, salt)` rather than by infohash, so resolving the address *is* checking a
+signature, and there is no unsigned first version to reason about. Spore cannot
+use that as its entry point, because resolving it requires the DHT and a browser
+has no UDP. Records reach a browser only from peers, which means being in the
+swarm already. The rendezvous swarm under
+[Bootstrapping from an identity alone](#bootstrapping-from-an-identity-alone) is
+the intended way out, and it is not built.
+
 ## The record
 
 Byte-for-byte a BEP 44 mutable item, bencoded, with BEP 46's value:
@@ -534,6 +619,10 @@ can name a key, the name is stored only in that browser, it is never published,
 and it replaces the key's self-declared claim wherever that reader sees it.
 Nothing exports or shares them, which is deliberate — see
 [Flags stay local](#flags-stay-local).
+
+`spore.sig` is implemented in `js/manifest.js`, written by both publishers (the
+gate when signed in, and `tools/seed.mjs` on every version it publishes) and
+checked by the gate on every read.
 
 Not implemented: the rendezvous swarm, introductions, flagging, and key
 rotation.

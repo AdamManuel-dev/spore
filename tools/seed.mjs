@@ -51,12 +51,13 @@ import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
 import { chown, cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { basename, join, relative, resolve } from 'node:path'
+import { basename, join, relative, resolve, sep } from 'node:path'
 
 import { DEFAULT_TRACKERS } from '../js/config.js'
 import { formatSporePub, identityFromPassphrase, fingerprint, saltFor, normalizeSite }
   from '../js/identity.js'
 import { signUpdate } from '../js/record.js'
+import { SIGNATURE_FILE, manifestEntries, signManifest } from '../js/manifest.js'
 import { watchForUpdates } from '../js/updates.js'
 
 /* -------------------------------------------------------------------------- */
@@ -330,6 +331,7 @@ async function checkForNewVersion ({ firstRun = false } = {}) {
   // logs look healthy, and the site never loads.
   await cp(contentPath, join(staging, siteName), { recursive: true })
   await declareIdentity(join(staging, siteName))
+  await signContent(join(staging, siteName))
 
   const torrent = await seedFrom(staging)
   try {
@@ -391,6 +393,45 @@ async function declareIdentity (dir) {
   const target = join(dir, 'spore.pub')
   if (existsSync(target)) return
   await writeFile(target, formatSporePub(identity.hex, claimedName, series))
+}
+
+/**
+ * Sign every file in the site, so that declaring a key stops being free.
+ *
+ * Without this, anyone can copy a `spore.pub` into a folder of their own text
+ * and publish: the site declares a real key, a reader checking the fingerprint
+ * against the real person's gets a match, and nothing anywhere says otherwise.
+ * They still cannot sign a successor, so they cannot move that person's
+ * readers, but they can put words under their name.
+ *
+ * `spore.sig` closes it. It lists every other file with the SHA-256 of its
+ * bytes and signs the list, so altering, adding or removing anything breaks
+ * verification. Paths are relative to the site root rather than to the torrent,
+ * because the torrent's name is metadata and renaming a site should not
+ * invalidate its signature.
+ */
+async function signContent (dir) {
+  if (!identity) return
+
+  const files = []
+  const walk = async current => {
+    for (const entry of await readdir(current, { withFileTypes: true })) {
+      const full = join(current, entry.name)
+      if (entry.isDirectory()) await walk(full)
+      else if (entry.isFile()) {
+        const path = relative(dir, full).split(sep).join('/')
+        if (path === SIGNATURE_FILE) continue
+        files.push({ path, bytes: new Uint8Array(await readFile(full)) })
+      }
+    }
+  }
+  await walk(dir)
+
+  const entries = await manifestEntries(files)
+  const contents = await signManifest(identity.privateKey, {
+    key: identity.hex, site: series, entries
+  })
+  await writeFile(join(dir, SIGNATURE_FILE), contents)
 }
 
 /**

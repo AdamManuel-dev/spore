@@ -333,6 +333,11 @@ button:hover, .button:hover { border-color: var(--accent); }
   color: var(--ink);
 }
 
+/* Verified, merely declared, and contradicted are three different claims, and
+   a reader should be able to tell them apart without opening anything. */
+.author-chip[data-state="verified"] { color: var(--accent); }
+.author-chip[data-state="broken"] { color: var(--danger); border-color: var(--danger); }
+
 #author-dialog {
   max-width: 32rem;
   padding: 24px;

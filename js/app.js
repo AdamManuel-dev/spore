@@ -19,7 +19,10 @@ import {
 } from './me.js'
 import { signUpdate } from './record.js'
 import { avatar, fingerprint, formatSporePub, normalizeSite, saltFor } from './identity.js'
-import { entryURL, findEntry, readSporePub } from './site.js'
+import {
+  SIGNATURE_FILE, checkFile, manifestEntries, missingFrom, signManifest, unlistedIn, verifyManifest
+} from './manifest.js'
+import { entryURL, filePaths, findEntry, readManifest, readSporePub } from './site.js'
 import { SiteNotFound, getClient, openTorrent, startClient, startWorker } from './swarm.js'
 import { watchForUpdates } from './updates.js'
 import {
@@ -782,6 +785,73 @@ async function nameAuthor (torrent, entry) {
   // it is what makes the next meeting recognisable as the same person.
   rememberAuthor(key.hex, { claimed: key.claimedName, infoHash: torrent.infoHash })
   await showAuthorChip(key)
+
+  // The torrent identifies what is being verified, not the address it was
+  // reached by: `ref` is not in scope here, and a bare infohash and a magnet
+  // for the same site are the same thing to verify.
+  verifyContent(torrent, entry, key)
+}
+
+/**
+ * Check the site's own bytes against what its key signed.
+ *
+ * Three states, and the middle one is the one that was missing. A site can
+ * declare a key without holding it — copying somebody's `spore.pub` is free —
+ * so "declares a key" and "proved it" are different claims and readers are
+ * entitled to see which they are looking at.
+ *
+ * Not awaited by the caller: the page is readable while this runs, and hashing
+ * a large site should never be what stands between a reader and the text.
+ */
+async function verifyContent (torrent, entry, key) {
+  const settle = state => {
+    if (current?.torrent !== torrent || authorship?.key?.hex !== key.hex) return
+    authorship.verified = state
+    showAuthorChip(key)
+  }
+
+  settle({ status: 'checking' })
+
+  const manifest = await readManifest(torrent, entry)
+  if (!manifest) {
+    return settle({ status: 'unverified', reason: `this site ships no ${SIGNATURE_FILE}` })
+  }
+
+  const result = await verifyManifest(manifest.contents, key.hex)
+  if (!result.ok) return settle({ status: 'broken', reason: result.reason })
+
+  const present = filePaths(torrent, manifest.root)
+  const extra = unlistedIn(result.manifest, present)
+  if (extra.length > 0) {
+    return settle({ status: 'broken', reason: `${extra[0]} is not covered by the signature` })
+  }
+  const absent = missingFrom(result.manifest, present)
+  if (absent.length > 0) {
+    return settle({ status: 'broken', reason: `${absent[0]} is signed for but missing` })
+  }
+
+  // Every file, not a sample: a signature that covers only what somebody
+  // happened to look at is not a signature over the site.
+  for (const file of torrent.files) {
+    if (current?.torrent !== torrent) return
+    const path = file.path.replace(/\\/g, '/')
+    if (!path.startsWith(manifest.root)) continue
+
+    const relative = path.slice(manifest.root.length)
+    if (relative === SIGNATURE_FILE) continue
+
+    let bytes
+    try {
+      bytes = new Uint8Array(await file.arrayBuffer())
+    } catch (err) {
+      return settle({ status: 'broken', reason: `${relative} could not be read: ${err.message}` })
+    }
+
+    const check = await checkFile(result.manifest, relative, bytes)
+    if (!check.ok) return settle({ status: 'broken', reason: check.reason })
+  }
+
+  settle({ status: 'verified', files: result.manifest.entries.length })
 }
 
 /**
@@ -794,11 +864,23 @@ async function nameAuthor (torrent, entry) {
  */
 async function showAuthorChip (key) {
   const mine = petname(key.hex)
+  const name = mine ?? (key.claimedName ? `“${key.claimedName}”` : 'a key')
+  const state = authorship?.verified?.status ?? 'checking'
+
   ui.authorChipAvatar.replaceChildren(await avatarNode(key.publicKey))
-  ui.authorChipName.textContent = mine ?? (key.claimedName ? `“${key.claimedName}”` : 'signed')
-  ui.authorChip.title = mine
-    ? `Signed by ${mine} — click to check`
-    : 'Signed — click to see who by'
+
+  // A mark for the state, because "declares a key" and "proved it" read
+  // identically otherwise, and the difference is the whole point of spore.sig.
+  const mark = { verified: '\u2713', broken: '\u2717', checking: '\u2026' }[state] ?? '?'
+  ui.authorChipName.textContent = `${mark} ${name}`
+  ui.authorChip.dataset.state = state
+
+  ui.authorChip.title = {
+    verified: `Every file signed by ${name}. Click to check who that is.`,
+    unverified: `${name} is declared but nothing proves it. Click for what that means.`,
+    broken: `This site does not match its own signature. Click for details.`,
+    checking: 'Checking the signature over this site...'
+  }[state]
   ui.authorChip.hidden = false
 }
 
@@ -825,7 +907,16 @@ async function showAuthor () {
   ui.authorLabel.value = mine ?? ''
   ui.authorForget.hidden = !met && !mine
 
+  const verified = authorship?.verified
+  const signature = {
+    verified: `yes, all ${verified?.files ?? '?'} files match what this key signed`,
+    unverified: `no. ${verified?.reason ?? 'nothing was checked'}`,
+    broken: `NO. ${verified?.reason ?? 'the site does not match its signature'}`,
+    checking: 'still checking'
+  }[verified?.status ?? 'checking']
+
   const facts = [
+    ['Content signed', signature],
     ['Calls itself', key.claimedName ? `“${key.claimedName}” — their own claim` : 'nothing'],
     ['Site', key.site ? key.site : 'the author’s default site'],
     ['Public key', key.hex, 'mono'],
@@ -871,6 +962,7 @@ function stopWatchingAuthor () {
   authorship = null
   ui.update.hidden = true
   ui.authorChip.hidden = true
+  delete ui.authorChip.dataset.state
 }
 
 /**
@@ -1348,7 +1440,9 @@ async function seed (files, name) {
 
   busy(`Hashing ${files.length} file${files.length === 1 ? '' : 's'}…`)
   try {
-    const signed = decision.sign ? withSporePub(files, decision.site) : files
+    const signed = decision.sign
+      ? await signContent(withSporePub(files, decision.site), decision.site)
+      : files
     const torrent = await publish(signed, name)
     const magnet = magnetFor(torrent.infoHash, torrent.name)
     showShareLink(magnet)
@@ -1389,6 +1483,47 @@ function withSporePub (files, site) {
   const file = new File([contents], 'spore.pub', { type: 'text/plain' })
   file.fullPath = `${root}spore.pub`
   return [...files, file]
+}
+
+/**
+ * Sign every file, so that declaring a key stops being free.
+ *
+ * `spore.pub` alone proves nothing: anyone can copy someone else's public key
+ * into a folder of their own text and publish it, and a reader checking the
+ * fingerprint against the real person's would get a match. `spore.sig` lists
+ * every other file with the hash of its bytes and signs the list, so the claim
+ * becomes checkable offline, from the torrent alone, on a first read.
+ *
+ * Paths are relative to the site root, not to the torrent, because the
+ * torrent's name is metadata: renaming a site should not invalidate what its
+ * author signed.
+ */
+async function signContent (files, site) {
+  const identity = me()
+  if (!identity) return files
+
+  const pathOf = file => file.fullPath || file.name
+  const index = files.find(file => /(^|\/)index\.html?$/i.test(pathOf(file)))
+  const anchorPath = pathOf(index ?? files[0])
+  const root = anchorPath.includes('/')
+    ? anchorPath.slice(0, anchorPath.lastIndexOf('/') + 1)
+    : ''
+
+  const described = []
+  for (const file of files) {
+    const full = pathOf(file)
+    const path = full.startsWith(root) ? full.slice(root.length) : full
+    if (path === SIGNATURE_FILE) continue
+    described.push({ path, bytes: new Uint8Array(await file.arrayBuffer()) })
+  }
+
+  const contents = await signManifest(identity.privateKey, {
+    key: identity.hex, site: site ?? null, entries: await manifestEntries(described)
+  })
+
+  const signature = new File([contents], SIGNATURE_FILE, { type: 'text/plain' })
+  signature.fullPath = `${root}${SIGNATURE_FILE}`
+  return [...files, signature]
 }
 
 /**
