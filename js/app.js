@@ -304,12 +304,18 @@ async function open (ref) {
     // storage even when nobody at all is seeding it — that is the entire point
     // of keeping it — and asking the swarm first would race the background
     // restore and often win, leaving the stored copy untouched.
-    if (parsed.infoHash) await restoreOne(getClient(), parsed.infoHash)
-
-    const torrent = await openTorrent(parsed.magnetURI, joined => {
+    // The same hook on both paths. A kept site is added to the client by the
+    // restore, so attaching only in openTorrent's callback would attach after
+    // its peers had already handshaked, and a site kept offline would never
+    // hear that a new version exists.
+    const join = joined => {
       watchJoining(joined)
       watchAuthor(joined)
-    })
+    }
+
+    if (parsed.infoHash) await restoreOne(getClient(), parsed.infoHash, join)
+
+    const torrent = await openTorrent(parsed.magnetURI, join)
     stopJoining()
 
     const entry = findEntry(torrent)
@@ -715,6 +721,12 @@ async function restoreIdentity () {
  * signature, different envelope. See spec/mutable-sites.md.
  */
 function watchAuthor (torrent) {
+  // Both the restore and the open hand us the same torrent, and the first
+  // attach is the one that matters: it is the one whose advertisement went out
+  // with the handshake. Tearing it down and replacing it would resolve its key
+  // promise to null, so any record already in flight would be refused.
+  if (authorship?.torrent === torrent) return
+
   stopWatchingAuthor()
 
   // The key is not known yet and cannot be: reading `spore.pub` needs metadata,
@@ -746,7 +758,7 @@ function watchAuthor (torrent) {
     onUpdate: update => { if (authorship?.key) offerUpdate(authorship.key, update) }
   })
 
-  authorship = { key: null, stop, offered: null, announceKey }
+  authorship = { torrent, key: null, stop, offered: null, announceKey }
 }
 
 /**

@@ -587,7 +587,16 @@ body.is-dragging .drop-overlay { display: flex; }
 }
 
 #diagnostics dt { color: var(--muted); }
-#diagnostics dd { margin: 0; }
+
+#diagnostics dd {
+  margin: 0;
+  min-width: 0;
+  /* Values here are origins, worker paths and magnets: long, unbreakable
+     tokens. On a phone they were simply clipped at the edge, so the one place
+     a reader goes when something is wrong could not be read on the device it
+     was wrong on. Reported from an iPhone, with the right-hand half missing. */
+  overflow-wrap: anywhere;
+}
 #diagnostics dd.bad { color: var(--danger); }
 #diagnostics dd.good { color: var(--accent); }
 
@@ -629,6 +638,11 @@ body.is-dragging .drop-overlay { display: flex; }
    page sideways, and dialogs sized in rem that a small screen cannot honour. */
 @media (max-width: 560px) {
   .statusbar { column-gap: 12px; }
+
+  /* Two columns of monospace do not fit a phone. Stacked, each value gets the
+     full width and nothing is cut off. */
+  #diagnostics dl { grid-template-columns: 1fr; gap: 2px 0; }
+  #diagnostics dt { margin-top: 10px; }
 
   /* The site's name gets its own line, so the controls beside it stay
      reachable instead of being pushed past the edge. */

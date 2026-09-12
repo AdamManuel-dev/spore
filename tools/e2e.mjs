@@ -313,6 +313,7 @@ async function run () {
   await checkMobileLayout()
   await checkLateFailureIsVisible()
   await checkContentSignature()
+  await checkKeptSiteHearsUpdates()
 }
 
 /**
@@ -1027,6 +1028,107 @@ async function checkPublishingASuccessor () {
   const stillOnBlog = await reader.evaluate(() => location.hash)
   check('a second site under the same key does not replace the first',
     still === detail && stillOnBlog.includes(v1), `${still.slice(0, 60)} | ${stillOnBlog.slice(0, 30)}`)
+}
+
+/**
+ * A site kept offline must still hear that a newer version exists.
+ *
+ * Reported: "if I have a page saved locally I never find out there is a new
+ * version." True, and the cause was ordering. Restoring a kept site adds it to
+ * the client, peers connect and exchange BEP 10 handshakes at once, and the
+ * update watcher was attached afterwards. Those peers never learned this
+ * browser spoke sp_update, so they never sent it one.
+ *
+ * Keeping a site is where this matters most: it is what a reader does with a
+ * page they mean to come back to.
+ */
+async function checkKeptSiteHearsUpdates () {
+  const publisher = await browser.createBrowserContext().then(c => c.newPage())
+  const reader = await browser.createBrowserContext().then(c => c.newPage())
+  reader.on('dialog', d => d.accept())
+
+  for (const page of [publisher, reader]) {
+    await page.goto(origin + '/', { waitUntil: 'load' })
+    await page.waitForFunction(
+      () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+  }
+
+  // Publishes two versions and offers the second to anyone on the first.
+  const published = await publisher.evaluate(async () => {
+    const { createIdentity, formatSporePub, saltFor } = await import('/js/identity.js')
+    const { seedTorrent } = await import('/js/swarm.js')
+    const { signUpdate } = await import('/js/record.js')
+    const { watchForUpdates } = await import('/js/updates.js')
+
+    const me = await createIdentity()
+    const pub = formatSporePub(me.hex, 'Kept Author', 'kept')
+
+    const version = async (body, name) => {
+      const files = [
+        new File([body], 'index.html', { type: 'text/html' }),
+        new File([pub], 'spore.pub', { type: 'text/plain' })
+      ]
+      files[0].fullPath = `${name}/index.html`
+      files[1].fullPath = `${name}/spore.pub`
+      return await seedTorrent(files, { name })
+    }
+
+    const v1 = await version('<h1>kept one</h1>', 'kept-v1')
+    const v2 = await version('<h1>kept two</h1>', 'kept-v2')
+
+    const record = await signUpdate(
+      me.privateKey, me.publicKey, v2.infoHash, Date.now(), saltFor('kept'))
+
+    watchForUpdates(v1, {
+      publicKey: () => me.publicKey,
+      salt: () => saltFor('kept'),
+      offer: () => record,
+      currentInfoHash: () => v1.infoHash,
+      onUpdate: () => {}
+    })
+
+    return { magnet: v1.magnetURI, v1: v1.infoHash, v2: v2.infoHash }
+  })
+
+  // The reader opens it and keeps it.
+  await reader.evaluate(m => { location.hash = m }, published.magnet)
+  await reader.waitForFunction(
+    () => !document.getElementById('viewer').hidden, { timeout: 30_000 })
+  await reader.click('#keep-toggle')
+  await reader.waitForFunction(
+    () => !document.getElementById('kept').hidden, { timeout: 40_000 })
+
+  // Then throws the live torrent away, so reopening has to come off disk. That
+  // is a reader coming back tomorrow, which is the case that was broken.
+  await reader.evaluate(async hash => {
+    const { getClient } = await import('/js/swarm.js')
+    location.hash = ''
+    await (await getClient().get(hash)).destroy()
+  }, published.v1)
+  await wait(2000)
+
+  await reader.evaluate(m => { location.hash = m }, published.magnet)
+
+  // Polled rather than waited on in stages: reopening a kept site reads every
+  // chunk back out of IndexedDB, which under a loaded suite can take longer
+  // than any single timeout worth hard-coding. The offer is the thing being
+  // measured, so wait for that and let the rendering happen when it happens.
+  let offered = false
+  for (let waited = 0; waited < 120_000 && !offered; waited += 2000) {
+    await wait(2000)
+    offered = await reader.$eval('#update', el => !el.hidden).catch(() => false)
+  }
+  check('a site kept offline is still told when a newer version exists',
+    offered,
+    offered ? '' : await reader.evaluate(() => ({
+      status: document.getElementById('status').textContent,
+      viewer: !document.getElementById('viewer').hidden,
+      error: document.getElementById('error').hidden ? null
+        : document.getElementById('error-title').textContent
+    })).then(JSON.stringify))
+
+  await publisher.close()
+  await reader.close()
 }
 
 /**

@@ -112,9 +112,11 @@ export function forget (infoHash) {
  * seedable straight away, without waiting to meet a peer who has them.
  *
  * @param {import('webtorrent').Instance} client
+ * @param {(torrent: object) => void} [onAdd]  called the moment each torrent
+ *   joins the client, before any peer has handshaked with it
  * @returns {Promise<{ restored: number, failed: string[] }>}
  */
-export async function restoreAll (client) {
+export async function restoreAll (client, onAdd) {
   const sites = await listSites()
   const failed = []
   let restored = 0
@@ -122,7 +124,7 @@ export async function restoreAll (client) {
   for (const site of sites) {
     // A site whose stored pieces no longer verify is not fatal: the gate still
     // works, and the site can be re-fetched from the swarm.
-    if (await restoreOne(client, site.infoHash)) restored++
+    if (await restoreOne(client, site.infoHash, onAdd)) restored++
     else failed.push(site.infoHash)
   }
   return { restored, failed }
@@ -143,14 +145,14 @@ const restoring = new Map()
  *
  * @returns {Promise<boolean>} whether the site is now loaded from disk
  */
-export function restoreOne (client, infoHash) {
+export function restoreOne (client, infoHash, onAdd) {
   if (!infoHash) return Promise.resolve(false)
   if (restoring.has(infoHash)) return restoring.get(infoHash)
 
   const job = (async () => {
     const site = await getSite(infoHash)
     if (!site) return false
-    await restore(client, site)
+    await restore(client, site, onAdd)
     return true
   })()
     .catch(() => false)
@@ -160,11 +162,20 @@ export function restoreOne (client, infoHash) {
   return job
 }
 
-async function restore (client, site) {
-  if (await client.get(site.infoHash)) return // already open in this tab
+async function restore (client, site, onAdd) {
+  const already = await client.get(site.infoHash)
+  if (already) return onAdd?.(already) // already open in this tab
 
   await new Promise((resolve, reject) => {
     const torrent = client.add(site.torrentFile, { store: IdbChunkStore }, () => resolve())
+
+    // Handed over before the wait, not after. A peer learns what extensions we
+    // speak in its BEP 10 handshake, which happens as soon as it connects — so
+    // a watcher attached once the restore has finished is invisible to every
+    // peer that arrived during it, and a kept site was never told about a new
+    // version. Attaching here means the advertisement goes out with the
+    // handshake, which is the only moment it can.
+    onAdd?.(torrent)
     torrent.once('error', reject)
   })
 }
