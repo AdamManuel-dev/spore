@@ -1,0 +1,110 @@
+# Build and publish the seeder image.
+#
+# Every release of this image so far was built by hand on one laptop, and three
+# of them went out broken in ways a build would have caught: a missing file, a
+# directory nobody could write, a crash on startup. The Dockerfile now proves
+# its own imports resolve, and this runs that proof somewhere reproducible.
+#
+# Triggered by tagging, so publishing is a deliberate act rather than a
+# side effect of pushing to main:
+#
+#     git tag seeder-v0.2.3 && git push origin seeder-v0.2.3
+#
+# The tag's version becomes the image tag, and `latest` moves with it. There is
+# also a manual trigger for a rebuild without a new version.
+#
+# Needs two repository secrets: DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (an
+# access token from hub.docker.com, not the account password).
+
+name: seeder image
+
+on:
+  push:
+    tags: ['seeder-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Image tag to publish, e.g. 0.2.3'
+        required: true
+      latest:
+        description: 'Also move :latest to it'
+        type: boolean
+        default: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "value=${GITHUB_REF_NAME#seeder-v}" >> "$GITHUB_OUTPUT"
+            echo "latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "latest=${{ inputs.latest }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # arm64 matters: a Raspberry Pi is a good seeder, and building it under
+      # emulation here is the difference between supporting one and claiming to.
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/seeder/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/spore-seeder:${{ steps.version.outputs.value }}
+            ${{ steps.version.outputs.latest == 'true' && format('{0}/spore-seeder:latest', secrets.DOCKERHUB_USERNAME) || '' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The build proves the imports resolve. This proves the thing actually
+      # runs: a seeder that starts, hashes a folder and announces itself. It is
+      # the amd64 image because that is what this runner can execute, but the
+      # arm64 half is built from the same Dockerfile in the same step.
+      - name: Smoke test the published image
+        run: |
+          mkdir -p /tmp/site /tmp/data
+          echo '<h1>ci</h1>' > /tmp/site/index.html
+          echo 'body{}' > /tmp/site/style.css
+
+          docker run -d --name smoke \
+            -v /tmp/site:/site:ro -v /tmp/data:/data \
+            -e SPORE_SITE_NAME=ci -e SPORE_SITE=ci \
+            -e SPORE_PASSPHRASE='a phrase for continuous integration' \
+            -e SPORE_STATUS_PORT=8081 -p 127.0.0.1:8081:8081 \
+            "${{ secrets.DOCKERHUB_USERNAME }}/spore-seeder:${{ steps.version.outputs.value }}"
+
+          for i in $(seq 1 30); do
+            docker logs smoke 2>&1 | grep -q 'Leave this running' && break
+            sleep 2
+          done
+          docker logs smoke
+
+          # complete:true means it can actually read back what it announces,
+          # which is the failure mode a healthy-looking seeder hides.
+          status=$(curl -sf --max-time 5 http://127.0.0.1:8081/ || echo '{}')
+          echo "$status"
+          echo "$status" | grep -q '"complete": true' || { echo 'seeder is not serving'; exit 1; }
+          echo "$status" | grep -q '"signed": true' || { echo 'seeder did not sign'; exit 1; }
+
+          # And it must have written a manifest, or declaring a key is free again.
+          test -f /tmp/data/versions/*/ci/spore.sig || { echo 'no spore.sig was written'; exit 1; }
+          echo 'ok'

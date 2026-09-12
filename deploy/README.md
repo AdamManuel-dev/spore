@@ -24,6 +24,17 @@ there is nothing to build:
 docker pull dangerblack/spore-seeder:latest   # linux/amd64, linux/arm64
 ```
 
+Releases are built by `.github/workflows/seeder.yml` rather than by hand:
+
+```sh
+git tag seeder-v0.2.4 && git push origin seeder-v0.2.4
+```
+
+It builds both architectures, pushes the version and `latest`, then starts the
+published image and fails the release unless it reports `complete: true`,
+`signed: true` and has written a `spore.sig`. Needs two repository secrets,
+`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`.
+
 Both images build and run on **x86-64** and on **64-bit ARM** — a Raspberry Pi
 5 running 64-bit Raspberry Pi OS or Ubuntu is fine, and so is an Apple Silicon
 machine. Docker picks the right architecture for the host on its own; there is

@@ -22,13 +22,26 @@ FROM node:22-slim
 WORKDIR /app
 
 # The seeder signs with the gate's own code rather than a second implementation
-# that could drift from it — the same bencode, the same BEP 44 record, the same
-# key derivation. All of it runs unmodified under Node: WebCrypto has Ed25519.
+# that could drift from it: the same bencode, the same BEP 44 record, the same
+# key derivation, the same manifest. All of it runs unmodified under Node,
+# because WebCrypto has Ed25519.
+#
+# The whole of js/ rather than a hand-written list. The list was there to keep a
+# gate change from invalidating this layer, and it cost more than it saved: a
+# new import (js/manifest.js) was added to the seeder and the list was not
+# updated, which would have shipped an image that dies on startup. A rebuilt
+# layer is cheaper than a broken release.
 COPY package.json ./
-COPY js/config.js js/bencode.js js/identity.js js/record.js js/updates.js ./js/
+COPY js/ ./js/
 COPY tools/seed.mjs ./tools/seed.mjs
 
 RUN npm install --no-audit --no-fund webtorrent node-datachannel
+
+# Proves every import resolves, at build time rather than on somebody's server.
+# `--help` returns before the seeder does anything, but the static imports at
+# the top of the module have already been loaded by then, so a missing file
+# fails the build. This check exists because a missing one shipped.
+RUN node tools/seed.mjs --help > /dev/null
 
 # /site is the folder to serve, and can be mounted read-only. /data holds a
 # frozen copy of every published version — that is what makes each magnet
