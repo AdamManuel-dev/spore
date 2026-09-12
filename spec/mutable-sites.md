@@ -203,8 +203,13 @@ all of the following hold:
 2. `k` equals the key in that `spore.pub`. *(Without this check a peer could
    announce a successor signed by a key of its own choosing.)*
 3. `sig` verifies over the record per BEP 44.
-4. `seq` is strictly greater than the highest `seq` previously accepted for
-   this key, remembered locally across sessions.
+4. `seq` is not *older* than the highest `seq` previously accepted for this
+   key and salt, remembered locally across sessions. Strictly older is refused;
+   equal is not, because a record equal to what is already known names the
+   version the reader has already accepted and therefore cannot pin them
+   backwards. Refusing equality broke a real case: a reader who takes an update
+   and later opens an older copy they kept is reading something stale, and was
+   never told so.
 5. `v.ih` differs from the infohash currently being read.
 
 A record that fails any check is discarded silently. A record that passes means

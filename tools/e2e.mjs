@@ -1670,9 +1670,17 @@ async function checkSigningCore (page) {
     bumped.seq = 500
     out.rejectsTamperedSeq = (await verifyUpdate(bumped, alice.publicKey)).ok === false
 
+    // Rule 4 refuses what is older, and only what is older: a record equal to
+    // the highest already seen still has to reach a reader who has gone back to
+    // an older copy, or keeping a page means never hearing about its successor
+    // again.
+    const sameSeq = await verifyUpdate(wire, alice.publicKey,
+      { knownSeq: 2, currentInfoHash: 'ab'.repeat(20) })
+    out.offersWhatIsAlreadyKnown = sameSeq.ok === true
+
     // Rule 4: authentic but stale.
     const replay = await verifyUpdate(wire, alice.publicKey, { knownSeq: 5 })
-    out.rejectsReplay = replay.ok === false && /not newer/.test(replay.reason)
+    out.rejectsReplay = replay.ok === false && /is older than/.test(replay.reason)
     out.acceptsNewer = (await verifyUpdate(wire, alice.publicKey, { knownSeq: 1 })).ok === true
 
     // Rule 5: pointing at what is already open.
@@ -1714,6 +1722,8 @@ async function checkSigningCore (page) {
   check('tampering with the infohash breaks the signature', r.rejectsTamperedValue)
   check('tampering with the sequence breaks the signature', r.rejectsTamperedSeq)
   check('an authentic but stale update is refused', r.rejectsReplay)
+  check('a reader back on an older copy is told about the version they know',
+    r.offersWhatIsAlreadyKnown)
   check('a newer update is accepted', r.acceptsNewer)
   check('an update pointing at the current version is refused', r.rejectsSelfPointer)
   check('a key has a stable, distinctive fingerprint',

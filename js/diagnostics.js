@@ -73,6 +73,8 @@ export async function collectDiagnostics () {
     }
   }
 
+  await reportGateVersion(add)
+
   // What the viewer is pointed at, and what the worker actually returns for it.
   // "Nothing displays" is usually one of these two lines disagreeing with the
   // other: a frame with no source, or a source the worker will not serve.
@@ -190,4 +192,43 @@ export async function resetBrowserState () {
   } catch { /* already unwritable, so nothing to remove */ }
 
   return problems
+}
+
+/**
+ * Which build of the gate is running, and whether a newer one is deployed.
+ *
+ * Asked directly, and it had no answer: Diagnostics reported the service
+ * worker's version but nothing about the page's own code. A browser holding a
+ * cached bundle looked identical to one running the current release, which is
+ * how a fixed bug gets reported as still broken — accurately, by someone whose
+ * browser never received the fix.
+ *
+ * The deployed copy is fetched with `cache: 'no-store'` so the comparison is
+ * against what the origin serves now, not against the same cache that may be
+ * the problem.
+ */
+async function reportGateVersion (add) {
+  const { GATE_VERSION } = await import('./config.js')
+  add('Gate version', GATE_VERSION, null)
+
+  let deployed = null
+  try {
+    const response = await fetch(new URL('./config.js', import.meta.url), { cache: 'no-store' })
+    if (response.ok) {
+      deployed = /GATE_VERSION\s*=\s*'([^']+)'/.exec(await response.text())?.[1] ?? null
+    }
+  } catch {
+    // Offline, or the origin is unreachable. Not knowing is a fine answer; a
+    // wrong one would send somebody looking for a problem that is not there.
+  }
+
+  if (!deployed) {
+    return add('Deployed gate', 'could not be checked from here', null)
+  }
+  if (deployed === GATE_VERSION) {
+    return add('Deployed gate', `${deployed} — this page is current`, true)
+  }
+
+  add('Deployed gate', `${deployed} — this page is running ${GATE_VERSION}`, false)
+  add('Fix', 'reload with a hard refresh, or press Reset below', false)
 }

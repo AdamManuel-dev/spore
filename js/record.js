@@ -152,10 +152,18 @@ export async function verifyUpdate (record, expectedKey, context = {}) {
   const valid = await crypto.subtle.verify({ name: 'Ed25519' }, key, record.sig, signed)
   if (!valid) return { ok: false, reason: 'signature does not verify' }
 
-  // Replay: an older record is authentic but stale, and accepting it would pin
-  // a reader to a version the author has already superseded.
-  if (Number.isInteger(knownSeq) && record.seq <= knownSeq) {
-    return { ok: false, reason: `seq ${record.seq} is not newer than ${knownSeq}` }
+  // Replay: a record older than the newest one already seen would pin a reader
+  // to a version the author has superseded, so it is refused.
+  //
+  // Strictly older, not "not newer". The two are different and treating them
+  // the same broke a real case: a reader who takes an update, then later opens
+  // an older copy they had kept, is reading something stale and was never told
+  // again — the record for the version they already knew about was refused for
+  // being equal to what they knew. Equality cannot pin anyone backwards,
+  // because such a record names the same version they already accepted, and
+  // rule 5 below already refuses anything pointing at what is on screen.
+  if (Number.isInteger(knownSeq) && record.seq < knownSeq) {
+    return { ok: false, reason: `seq ${record.seq} is older than ${knownSeq}` }
   }
 
   const infoHash = toHex(ih)

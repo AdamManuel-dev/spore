@@ -60,3 +60,17 @@ export const METADATA_SILENT_MS = 30_000
  * nothing renders — so Diagnostics compares them and flags a mismatch.
  */
 export const EXPECTED_WORKER_VERSION = '2026-09-10.4'
+
+/**
+ * Which build of the gate this is.
+ *
+ * There is no build step here on purpose, so nothing stamps a version into the
+ * bundle: this is bumped by hand when a release goes out. It exists because
+ * "am I running the current gate?" was unanswerable, and a reader whose browser
+ * had cached an older one had no way to tell — they would report a bug that had
+ * been fixed, and be right that it was still happening to them.
+ *
+ * Diagnostics compares this against the copy deployed at the origin the page
+ * came from, which turns that question into one line.
+ */
+export const GATE_VERSION = '2026-09-12.1'
