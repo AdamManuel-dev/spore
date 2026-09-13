@@ -192,7 +192,19 @@ button:hover, .button:hover { border-color: var(--accent); }
   min-width: 0;
 }
 
-.pick { display: inline-block; }
+/* Its own line, with room under it. As an inline-block with no margin the
+   button sat flush against the paragraph below, which reads as overlapping. */
+.pick {
+  display: inline-block;
+  margin: 4px 0 18px;
+}
+
+@media (max-width: 560px) {
+  /* Full width and a bigger target: this is the button people press on a
+     phone, and it was the smallest thing on the card. */
+  .pick { display: block; }
+  .pick .button { display: block; text-align: center; padding: 12px; }
+}
 
 .share {
   flex: none;
