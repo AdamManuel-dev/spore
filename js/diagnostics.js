@@ -73,6 +73,28 @@ export async function collectDiagnostics () {
     }
   }
 
+  try {
+    const { sandboxWorks } = await import('./viewer.js')
+    const works = sandboxWorks()
+    add('Sandboxed frames', works === null
+      ? 'not determined yet'
+      : works
+        ? 'served by the worker'
+        : 'NOT served — sites are shown without the sandbox attribute', works)
+
+    if (works === false) {
+      let decision = null
+      try { decision = localStorage.getItem('spore.reduced-isolation') } catch { /* unreadable */ }
+      add('Reduced isolation', decision === 'yes'
+        ? 'accepted: a link you click can open an outside tab'
+        : decision === 'no' ? 'declined: sites are not shown' : 'not decided yet',
+      decision === 'yes' ? null : false)
+    }
+  } catch {
+    // The viewer module not loading is somebody else's problem, reported
+    // elsewhere; not knowing this is better than failing the whole panel.
+  }
+
   await reportGateVersion(add)
 
   // What the viewer is pointed at, and what the worker actually returns for it.

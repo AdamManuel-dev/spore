@@ -392,6 +392,46 @@
   </div>
 </dialog>
 
+<!--
+  Shown before the first site, on a browser whose engine will not let the
+  service worker serve a sandboxed frame. Every browser on iOS is in that
+  position. The reader is told what is lost and what is not, and chooses:
+  Spore asks before granting scripts and before writing to disk, and this is
+  a larger question than either.
+-->
+<dialog id="isolation-dialog">
+  <div class="dialog-head">
+    <h2>This browser cannot isolate sites the usual way</h2>
+  </div>
+
+  <p>Spore normally shows a site inside a <strong>sandboxed frame</strong>. This
+     browser refuses to serve one: the page would arrive from the network
+     instead of from the swarm, which is why nothing renders. Every browser on
+     iOS behaves this way, because they all use the same engine.</p>
+
+  <p>Sites can still be shown, without that frame. Most of the protection does
+     not come from it:</p>
+
+  <dl class="author-facts">
+    <dt>Scripts</dt><dd>still impossible, and the per-site switch is withdrawn here</dd>
+    <dt>Images, fonts, requests</dt><dd>still confined to the site's own torrent</dd>
+    <dt>A site navigating itself away</dt><dd>still blocked</dd>
+    <dt>Reading another site's files</dt><dd>still refused</dd>
+    <dt class="lost">A link you click</dt>
+    <dd class="lost">can open an outside tab, and that site sees your IP address</dd>
+  </dl>
+
+  <p class="muted small">That last line is the whole difference, and it needs a
+     deliberate click. Nothing happens on its own. Spore does not hide your IP
+     from the peers you download from either, so this is a smaller change than
+     it sounds — but it is a real one, and it is yours to make.</p>
+
+  <div class="dialog-actions">
+    <button id="isolation-refuse" type="button" class="link">Do not show sites</button>
+    <button id="isolation-accept" type="button">Show sites anyway</button>
+  </div>
+</dialog>
+
 <dialog id="diagnostics">
   <div class="dialog-head">
     <h2>Diagnostics</h2>

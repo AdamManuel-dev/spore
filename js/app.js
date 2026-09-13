@@ -6,6 +6,7 @@
  * to whichever host is serving this bundle.
  */
 
+import { TORRENT_PATH } from './config.js'
 import { collectDiagnostics, resetBrowserState } from './diagnostics.js'
 import { openDatabase, usage } from './idb.js'
 import { KEEP_WARNING, forget, isKept, keep, keptSites, restoreAll, restoreOne } from './keep.js'
@@ -28,7 +29,7 @@ import { watchForUpdates } from './updates.js'
 import {
   author, forgetAuthor, knownSeq, petname, rememberAuthor, rememberVersion, setPetname
 } from './authors.js'
-import { Viewer } from './viewer.js'
+import { Viewer, probeSandbox, sandboxWorks } from './viewer.js'
 
 const el = id => document.getElementById(id)
 
@@ -95,6 +96,9 @@ const ui = {
   diagnosticsReset: el('diagnostics-reset'),
   diagnosticsClose: el('diagnostics-close'),
   diagnosticsDismiss: el('diagnostics-dismiss'),
+  isolationDialog: el('isolation-dialog'),
+  isolationAccept: el('isolation-accept'),
+  isolationRefuse: el('isolation-refuse'),
   dropzone: el('dropzone'),
   signedIn: el('signed-in'),
   meAvatar: el('me-avatar'),
@@ -212,6 +216,13 @@ async function boot () {
     return fail(err)
   }
   ready = true
+
+  // Asked before any site is shown, because the answer decides how it is shown.
+  // Not awaited on the critical path: a browser that never answers is treated
+  // as the ordinary case, and the site is still opened.
+  probeSandbox(new URL(`./${TORRENT_PATH}/probe/`, document.baseURI).href)
+    .then(works => { if (!works) noteSandboxFallback() })
+    .catch(() => {})
 
   // Storage being unavailable is survivable — keeping sites offline is not —
   // but the reader should know, because it also explains a lot of odd
@@ -435,6 +446,13 @@ function stopJoining () {
 }
 
 async function render (torrent, entry) {
+  // Asked before anything is shown, not after. On an engine that cannot serve
+  // a sandboxed frame the reader is accepting a real, if narrow, loss, and
+  // showing them the site first would be presenting it as a formality.
+  if (sandboxWorks() === false && !(await askAboutIsolation())) {
+    return showIsolationRefused(torrent)
+  }
+
   const allowed = scriptsAllowed(torrent.infoHash)
 
   ui.scripts.checked = allowed
@@ -1118,7 +1136,130 @@ function onUpdateDismiss () {
 }
 
 /**
- * Notice when the browser takes the service worker away, and put it back.
+ * Say, once, that this browser cannot isolate sites the usual way.
+ *
+ * WebKit will not let the service worker serve a sandboxed frame, so on iOS the
+ * choice is between showing sites without that attribute and not showing them
+ * at all. Readers are told rather than quietly given less, and the scripts
+ * toggle is withdrawn: the shared origin it already costs is defensible behind
+ * a sandbox and is not without one.
+ */
+const ISOLATION_KEY = 'spore.reduced-isolation'
+
+/**
+ * Ask before showing anything on an engine that cannot sandbox a frame.
+ *
+ * Measured rather than assumed, because the answer decides what to tell the
+ * reader. Clicking `target="_blank"` inside a site, with and without the
+ * attribute:
+ *
+ *   with sandbox      no tab opened, the third party is never contacted
+ *   without sandbox   a tab opens on it, and it sees the reader's IP
+ *
+ * Everything else survives: scripts stay impossible, requests stay inside the
+ * torrent, and a site still cannot navigate itself elsewhere — that last one is
+ * held by the gate's own `frame-src 'self'`, not by the sandbox, which is why
+ * it does not move.
+ *
+ * So the honest question is narrow, and it is the reader's: one deliberate
+ * click can reveal your address to somebody. Spore asks before running scripts
+ * and before writing to disk; this is larger than either.
+ */
+function noteSandboxFallback () {
+  ui.scripts.disabled = true
+  ui.scripts.checked = false
+  ui.scripts.title =
+    'Unavailable in this browser: it cannot isolate a site in a sandboxed frame.'
+}
+
+/**
+ * The reader said no. Say what that means and leave the decision reversible.
+ *
+ * Not an error page: nothing failed. They declined a trade, and the site is
+ * still there, still verifiable, still readable in a browser that can sandbox
+ * a frame.
+ */
+function showIsolationRefused (torrent) {
+  stopJoining()
+  ui.viewer.clear()
+  ui.welcome.hidden = true
+  ui.listing.hidden = true
+  ui.error.hidden = true
+
+  ui.notice.innerHTML = ''
+  const text = document.createElement('p')
+  text.textContent =
+    `“${torrent.name ?? torrent.infoHash}” was downloaded and verified, and is ` +
+    'not being shown, because this browser cannot isolate it in a sandboxed ' +
+    'frame and you chose not to accept that. Nothing is wrong with the site. ' +
+    'It will display normally in a browser that can, and the same link works ' +
+    'there.'
+
+  const again = document.createElement('button')
+  again.type = 'button'
+  again.className = 'link'
+  again.textContent = 'Change that decision'
+  again.addEventListener('click', () => {
+    try { localStorage.removeItem(ISOLATION_KEY) } catch { /* nothing kept */ }
+    current = null
+    route()
+  })
+
+  ui.notice.append(text, again)
+  ui.notice.className = 'notice'
+  ui.notice.hidden = false
+  ui.status.textContent = `${torrent.name ?? torrent.infoHash} — not shown`
+}
+
+/** @returns {'yes'|'no'|null} what this browser was told last time */
+function isolationChoice () {
+  try {
+    return localStorage.getItem(ISOLATION_KEY)
+  } catch {
+    return null // unreadable storage: ask again rather than assume consent
+  }
+}
+
+/**
+ * @returns {Promise<boolean>} whether sites may be shown in this browser
+ */
+function askAboutIsolation () {
+  const decided = isolationChoice()
+  if (decided) return Promise.resolve(decided === 'yes')
+
+  ui.isolationDialog.showModal()
+
+  return new Promise(resolve => {
+    const answer = allowed => {
+      try {
+        localStorage.setItem(ISOLATION_KEY, allowed ? 'yes' : 'no')
+      } catch {
+        // The decision still stands for this session; it will be asked again.
+      }
+      ui.isolationDialog.close()
+      cleanup()
+      resolve(allowed)
+    }
+
+    const onAccept = () => answer(true)
+    const onRefuse = () => answer(false)
+    // Dismissing without choosing is not consent.
+    const onClose = () => { cleanup(); resolve(false) }
+
+    ui.isolationAccept.addEventListener('click', onAccept)
+    ui.isolationRefuse.addEventListener('click', onRefuse)
+    ui.isolationDialog.addEventListener('close', onClose)
+
+    function cleanup () {
+      ui.isolationAccept.removeEventListener('click', onAccept)
+      ui.isolationRefuse.removeEventListener('click', onRefuse)
+      ui.isolationDialog.removeEventListener('close', onClose)
+    }
+  })
+}
+
+/**
+ * Notice when the browser takes the service worker away.
  *
  * Spore checked for a controller once, when opening a site, and never again.
  * That held on desktop and does not on iOS: WebKit evicts registrations under
@@ -1242,6 +1383,10 @@ Only enable this for a site you trust.`
  */
 async function onScriptsToggle () {
   if (!current) return
+  if (sandboxWorks() === false) {
+    ui.scripts.checked = false
+    return
+  }
   const { torrent } = current
 
   // Granting scripts is the one decision in the gate that gives something up,

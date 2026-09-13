@@ -113,6 +113,11 @@ document.
   Content-Security-Policy that the worker attaches to every response. See
   [SECURITY.md](SECURITY.md) — it is the heart of the project, not a detail.
 
+WebKit refuses to serve a sandboxed frame, so on iOS that layer is unavailable
+and Spore asks before showing sites without it. The cost is narrow and
+measured: a clicked link can open an outside tab that sees your IP. Scripts and
+off-torrent requests stay blocked either way.
+
 ## Publishing
 
 Drop a folder with an `index.html` at the top and relative links inside. The

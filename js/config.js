@@ -59,7 +59,7 @@ export const METADATA_SILENT_MS = 30_000
  * been updated, and the symptom is that everything reports healthy while
  * nothing renders — so Diagnostics compares them and flags a mismatch.
  */
-export const EXPECTED_WORKER_VERSION = '2026-09-10.4'
+export const EXPECTED_WORKER_VERSION = '2026-09-13.1'
 
 /**
  * Which build of the gate this is.
@@ -73,4 +73,4 @@ export const EXPECTED_WORKER_VERSION = '2026-09-10.4'
  * Diagnostics compares this against the copy deployed at the origin the page
  * came from, which turns that question into one line.
  */
-export const GATE_VERSION = '2026-09-12.3'
+export const GATE_VERSION = '2026-09-13.1'

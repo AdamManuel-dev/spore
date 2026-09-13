@@ -111,6 +111,23 @@ navigation, so a site cannot replace the gate; no popups, which would otherwise
 be an egress channel CSP does not cover; no forms, no downloads, no plugins, no
 pointer lock, no modals.
 
+### WebKit will not serve a sandboxed frame
+
+Measured with two frames in one document differing only in the attribute:
+WebKit served the plain one and answered the sandboxed one with the host's 404;
+Chrome and Firefox served both. Since every browser on iOS is WebKit, layer 3
+is unavailable there, and a site shown inside it would never render.
+
+Spore detects this by trying, not by reading the user agent, and asks the
+reader before showing anything. What the fallback actually costs, measured the
+same way: a clicked link can open an outside tab, and that site sees the
+reader's IP. Nothing else moves. Scripts stay impossible, requests stay inside
+the torrent, and a site still cannot navigate itself elsewhere — that last one
+is held by the gate's own `frame-src 'self'`, not by the sandbox. The per-site
+script permission is withdrawn entirely in this mode.
+
+Declining is respected: the site is downloaded and verified, and not displayed.
+
 ### Why `allow-same-origin` is there — and why it cannot be removed
 
 The design one would reach for first is a fully sandboxed frame with an opaque

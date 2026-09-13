@@ -25,7 +25,7 @@
  * stale one is invisible: everything looks healthy and nothing works. The
  * Diagnostics panel compares the two and says so.
  */
-const VERSION = '2026-09-10.4'
+const VERSION = '2026-09-13.1'
 
 const WEBTORRENT_PREFIX = 'webtorrent/'
 const PORT_TIMEOUT_MS = 5000
@@ -78,6 +78,23 @@ function route (event) {
   if (url.startsWith(base + 'cancel/')) {
     // WebTorrent probes this to learn whether stream cancellation works here.
     return new Response(new ReadableStream({ cancel () { streamCancelSupported = true } }))
+  }
+  if (url.startsWith(base + 'probe/')) {
+    // Answered so the page can find out whether a *sandboxed* frame reaches
+    // this worker at all. WebKit does not let one: a frame with
+    // `sandbox="allow-same-origin"` is never controlled, its request goes to
+    // the network, and the reader gets the host's 404. Chrome and Firefox
+    // serve it. The page cannot detect that by asking, only by trying.
+    //
+    // Served with the same policy a site gets, so the answer is about frames
+    // rather than about anything special done for the probe.
+    return new Response('<!doctype html><title>probe</title><body>served', {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+        'Cache-Control': 'no-store'
+      }
+    })
   }
   return serve(event, url.slice(base.length))
 }

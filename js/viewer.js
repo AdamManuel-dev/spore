@@ -45,10 +45,99 @@ const LOAD_TIMEOUT_MS = 15_000
 /** Nothing is granted that the site has not been given a reason to have. */
 const BASE_SANDBOX = ['allow-same-origin']
 
+/**
+ * Whether a sandboxed frame is reachable by the service worker here.
+ *
+ * WebKit says no, and says it silently. A frame carrying `sandbox` is never
+ * controlled, however the flags are set: its request skips the worker, goes to
+ * the network, and the reader gets the host's 404 as a white page. Chrome and
+ * Firefox serve it. Since every browser on iOS is WebKit, this is not an edge
+ * case there, it is every reader.
+ *
+ * Measured with two frames in one document, the only difference being the
+ * attribute:
+ *
+ *   WebKit    plain: served     sandboxed: 404
+ *   Chrome    plain: served     sandboxed: served
+ *
+ * Detected by trying rather than by reading the user agent, because the
+ * question is what this engine does, and engines change.
+ */
+let sandboxIsServed = null
+
+export function sandboxWorks () {
+  return sandboxIsServed
+}
+
+/**
+ * Ask the worker for a page from inside a sandboxed frame, and see if it
+ * arrives. Runs once, on a hidden frame, and settles before any site is shown.
+ */
+export async function probeSandbox (probeURL) {
+  if (sandboxIsServed !== null) return sandboxIsServed
+
+  const frame = document.createElement('iframe')
+  frame.setAttribute('sandbox', BASE_SANDBOX.join(' '))
+  frame.setAttribute('aria-hidden', 'true')
+  frame.style.cssText = 'position:absolute;width:0;height:0;border:0;visibility:hidden'
+
+  const settled = new Promise(resolve => {
+    const done = value => { clearTimeout(timer); resolve(value) }
+    const timer = setTimeout(() => done(false), 8000)
+
+    frame.addEventListener('load', () => {
+      // Attaching a frame to the document fires `load` for its initial
+      // about:blank, before the real navigation has happened at all. Answering
+      // that one reports an empty body and concludes the worker did not serve
+      // it — which is how this probe first managed to be wrong on Chrome, where
+      // sandboxed frames work perfectly well. Only the probe's own URL counts.
+      let here = ''
+      try { here = frame.contentDocument?.URL ?? '' } catch { here = '' }
+      if (here === 'about:blank' || here === '') return
+
+      try {
+        // Same-origin is granted, so the document is readable. A worker-served
+        // answer says "served"; anything else came from the network.
+        done((frame.contentDocument?.body?.textContent ?? '').includes('served'))
+      } catch {
+        // Unreadable means the frame did not end up same-origin, which is the
+        // failure this is looking for.
+        done(false)
+      }
+    })
+  })
+
+  frame.src = probeURL
+  document.body.append(frame)
+  sandboxIsServed = await settled
+  frame.remove()
+  return sandboxIsServed
+}
+
 export class Viewer {
   /** @param {HTMLIFrameElement} frame */
   constructor (frame) {
     this.frame = frame
+  }
+
+  /**
+   * A frame that never carried the attribute at all.
+   *
+   * Removing `sandbox` is not enough on WebKit: whether a frame can be
+   * controlled appears to be settled when it is created, so an element that
+   * started life sandboxed keeps going to the network however the attribute is
+   * edited afterwards. Measured — the attribute was gone and the frame still
+   * received the host's 404. Replacing the element is what actually changes
+   * the answer.
+   */
+  withoutSandbox () {
+    const fresh = document.createElement('iframe')
+    fresh.id = this.frame.id
+    fresh.className = this.frame.className
+    fresh.title = this.frame.title
+    fresh.hidden = this.frame.hidden
+    this.frame.replaceWith(fresh)
+    return fresh
   }
 
   /**
@@ -67,7 +156,18 @@ export class Viewer {
     // to silently do nothing until the reader navigated away and back.
     await this.clear()
 
-    this.frame.setAttribute('sandbox', sandbox.join(' '))
+    // On an engine that refuses to serve a sandboxed frame, the choice is
+    // between showing the site without the attribute and not showing it at
+    // all. The second layer, the Content-Security-Policy the worker attaches,
+    // is untouched either way: no scripts, and no request that leaves the
+    // torrent. What is given up is the sandbox's own protections, chiefly that
+    // a click cannot navigate the gate away or open an outside tab. Scripts
+    // are refused outright in this mode, because shared origin without even a
+    // sandbox is not a trade worth offering.
+    if (sandboxIsServed === false && this.frame.hasAttribute('sandbox')) {
+      this.frame = this.withoutSandbox()
+    }
+    else this.frame.setAttribute('sandbox', sandbox.join(' '))
 
     // Watch the navigation rather than assume it. A viewer stuck on
     // `about:blank` is the worst failure this app has: the reader sees an empty

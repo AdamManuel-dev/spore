@@ -316,6 +316,7 @@ async function run () {
   await checkKeptSiteHearsUpdates()
   await checkReadersPassItOn()
   await checkWorkerIsPutBack()
+  await checkSandboxProbe()
 }
 
 /**
@@ -1030,6 +1031,62 @@ async function checkPublishingASuccessor () {
   const stillOnBlog = await reader.evaluate(() => location.hash)
   check('a second site under the same key does not replace the first',
     still === detail && stillOnBlog.includes(v1), `${still.slice(0, 60)} | ${stillOnBlog.slice(0, 30)}`)
+}
+
+/**
+ * The gate must find out for itself whether a sandboxed frame is reachable.
+ *
+ * WebKit will not let a service worker serve one, which is why nothing rendered
+ * on iOS: the frame's request skipped the worker, went to the network, and the
+ * host answered 404. Measured with two frames differing only in the attribute —
+ * WebKit served the plain one and 404'd the sandboxed one, Chrome served both.
+ *
+ * Here the answer must be yes, and the sandbox must therefore still be applied:
+ * this check exists to make sure the fallback never triggers on an engine that
+ * does not need it, because it costs real isolation.
+ */
+async function checkSandboxProbe () {
+  const page = await browser.createBrowserContext().then(c => c.newPage())
+  await page.goto(origin + '/', { waitUntil: 'load' })
+  await page.waitForFunction(
+    () => document.getElementById('status').textContent === 'Nothing open', { timeout: 30_000 })
+
+  const served = await page.waitForFunction(async () => {
+    const { sandboxWorks } = await import('/js/viewer.js')
+    return sandboxWorks() !== null ? { verdict: sandboxWorks() } : null
+  }, { timeout: 25_000 }).then(h => h.jsonValue()).catch(() => ({ verdict: 'timed out' }))
+  check('the gate works out whether sandboxed frames reach the worker',
+    served.verdict === true, JSON.stringify(served))
+
+  // The probe endpoint is the worker's, so it must not be reachable without one.
+  const direct = await page.evaluate(async prefix => {
+    const res = await fetch(prefix + '/probe/')
+    const body = await res.text()
+    // The whole body, not a prefix of it: the marker sits after the doctype,
+    // and slicing it off made this check fail on a worker that was answering
+    // perfectly well.
+    return { status: res.status, served: body.includes('served'), length: body.length }
+  }, `${origin}/webtorrent`)
+  check('the worker answers the probe', direct.status === 200 && direct.served,
+    JSON.stringify(direct))
+
+  // And with a working engine the sandbox is still there, unweakened.
+  const magnet = await page.evaluate(async () => {
+    const { publish } = await import('/js/publish.js')
+    const index = new File(['<h1>sandboxed</h1>'], 'index.html', { type: 'text/html' })
+    index.fullPath = 'sandboxed/index.html'
+    const style = new File(['body{color:#111}'], 'style.css', { type: 'text/css' })
+    style.fullPath = 'sandboxed/style.css'
+    return (await publish([index, style], 'sandboxed')).magnetURI
+  })
+  await page.evaluate(m => { location.hash = m }, magnet)
+  await page.waitForFunction(
+    () => !document.getElementById('viewer').hidden, { timeout: 30_000 })
+  check('a capable engine keeps the sandbox',
+    (await page.$eval('#viewer', el => el.getAttribute('sandbox'))) === 'allow-same-origin',
+    await page.$eval('#viewer', el => el.getAttribute('sandbox')))
+
+  await page.close()
 }
 
 /**
