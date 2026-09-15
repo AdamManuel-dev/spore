@@ -1,0 +1,281 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.6 Chrome/144.0.7559.236 Electron/40.8.4 Safari/537.36" version="29.6.6" pages="3">
+  <diagram id="runtime" name="1 · Runtime and trust">
+    <mxGraphModel dx="1045" dy="724" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1180" pageHeight="900" math="0" shadow="0" adaptiveColors="auto">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="r-title" parent="1" style="text;html=1;align=left;fontSize=25;fontStyle=1;" value="Spore · Runtime and trust boundaries" vertex="1">
+          <mxGeometry height="40" width="1050" x="40" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r-sub" parent="1" style="text;html=1;align=left;fontSize=14;" value="Implemented architecture · same-origin content, not a separate-origin security boundary" vertex="1">
+          <mxGeometry height="30" width="1050" x="40" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="r-browser" parent="1" style="swimlane;startSize=24;html=1;whiteSpace=wrap;fillColor=#e8f4f8;strokeColor=#6c8ebf;fontStyle=1;fontSize=14;pointerEvents=0;" value="Browser · gate origin / registration scope" vertex="1">
+          <mxGeometry height="440" width="680" x="220" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="r-gate" parent="r-browser" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" value="&lt;b&gt;Static gate UI&lt;/b&gt;&lt;br&gt;fragment → magnet&lt;br&gt;policy / consent" vertex="1">
+          <mxGeometry height="60" width="140" x="40" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r-wt" parent="r-browser" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" value="&lt;b&gt;Page WebTorrent&lt;/b&gt;&lt;br&gt;join / seed swarms&lt;br&gt;createServer" vertex="1">
+          <mxGeometry height="60" width="140" x="400" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r-sw" parent="r-browser" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" value="&lt;b&gt;Service worker&lt;/b&gt;&lt;br&gt;HTTP ↔ MessagePort&lt;br&gt;CSP + torrent checks" vertex="1">
+          <mxGeometry height="60" width="140" x="400" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="r-probe" parent="r-browser" style="rhombus;html=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" value="Sandbox&lt;br&gt;probe works?" vertex="1">
+          <mxGeometry height="80" width="140" x="40" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="r-normal" parent="r-browser" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" value="&lt;b&gt;Sandbox viewer&lt;/b&gt;&lt;br&gt;allow-same-origin&lt;br&gt;scripts off by default" vertex="1">
+          <mxGeometry height="60" width="140" x="220" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="r-compat" parent="r-browser" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" value="&lt;b&gt;Compat viewer&lt;/b&gt;&lt;br&gt;consent required&lt;br&gt;no sandbox; see caveat" vertex="1">
+          <mxGeometry height="60" width="140" x="40" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="r-http" parent="r-browser" style="text;html=1;align=left;fontSize=12;" value="Viewer requests: scope/webtorrent/&amp;lt;hash&amp;gt;/&amp;lt;path&amp;gt; · normal HTML/CSS/resources" vertex="1">
+          <mxGeometry height="40" width="600" x="40" y="370" as="geometry" />
+        </mxCell>
+        <mxCell id="r-e4" edge="1" parent="r-browser" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;startArrow=classic;fontSize=11;" value="WebRTC">
+          <mxGeometry relative="1" x="-0.1176" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="540" y="90" />
+              <mxPoint x="790" y="90" />
+            </Array>
+            <mxPoint x="540" y="90" as="sourcePoint" />
+            <mxPoint x="789.9999999999998" y="170" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r-host" parent="1" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" value="&lt;b&gt;Static HTTPS host&lt;/b&gt;&lt;br&gt;gate + vendor + sw.js&lt;br&gt;no app backend" vertex="1">
+          <mxGeometry height="60" width="140" x="40" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="r-trackers" parent="1" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" value="&lt;b&gt;WSS trackers&lt;/b&gt;&lt;br&gt;peer introductions&lt;br&gt;not content hosting" vertex="1">
+          <mxGeometry height="60" width="140" x="940" y="180" as="geometry" />
+        </mxCell>
+        <mxCell id="r-peers" parent="1" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" value="&lt;b&gt;WebRTC peers&lt;/b&gt;&lt;br&gt;browser / Node seeder&lt;br&gt;pieces + metadata" vertex="1">
+          <mxGeometry height="60" width="140" x="940" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="r-e1" edge="1" parent="1" source="r-host" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;" target="r-gate" value="HTTPS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r-e2" edge="1" parent="1" source="r-gate" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;" target="r-wt" value="join / publish">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r-e3" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;startArrow=classic;fontSize=11;" target="r-trackers" value="WSS">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="760" y="210" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r-e5" edge="1" parent="1" source="r-sw" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;startArrow=classic;fontSize=11;" target="r-wt" value="request / bytes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r-e6" edge="1" parent="1" source="r-gate" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;" target="r-probe" value="probe">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r-e7" edge="1" parent="1" source="r-probe" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;" target="r-normal" value="yes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r-e8" edge="1" parent="1" source="r-probe" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;dashed=1;fontSize=11;" target="r-compat" value="no + consent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r-e9" edge="1" parent="1" source="r-normal" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;" target="r-sw" value="HTTP fetch">
+          <mxGeometry relative="1" x="-0.3" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="680" y="470" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r-e10" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;entryX=0.5;entryY=1;fontSize=10;" target="r-sw" value="HTTP fetch">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="400" y="510" />
+              <mxPoint x="690" y="510" />
+            </Array>
+            <mxPoint x="400" y="510" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r-note1" parent="1" style="rounded=1;html=1;whiteSpace=wrap;align=left;spacing=12;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" value="&lt;b&gt;Default protection&lt;/b&gt;&lt;br&gt;SW sets script-src &#39;none&#39;; CSP limits resource loads to same origin.&lt;br&gt;SW rejects identified cross-torrent requests (client/referrer → hash).&lt;br&gt;Not separate origins; non-torrent URLs pass through to the network." vertex="1">
+          <mxGeometry height="110" width="510" x="40" y="640" as="geometry" />
+        </mxCell>
+        <mxCell id="r-note2" parent="1" style="rounded=1;html=1;whiteSpace=wrap;align=left;spacing=12;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;" value="&lt;b&gt;Script opt-in weakens trust&lt;/b&gt;&lt;br&gt;Shared origin lets site scripts reach the gate and use stored keys.&lt;br&gt;Fallback blocks script-toggle action, not existing script grants.&lt;br&gt;External-tab clicks may disclose IP; refusal leaves content unshown." vertex="1">
+          <mxGeometry height="110" width="540" x="580" y="640" as="geometry" />
+        </mxCell>
+        <mxCell id="r-foot" parent="1" style="text;html=1;whiteSpace=wrap;align=left;fontSize=12;" value="Availability: seeding ends when the tab closes. SW cannot use WebRTC. Peer IPs are visible; no anonymity or browser DHT resolution.&lt;br&gt;Legend: blue = gate runtime; green = checks; amber/red = trust trade-off; gray = external. Solid = flow; dashed = conditional path.&lt;br&gt;Source: js/swarm.js · sw.js · js/viewer.js · js/app.js. URL fragment is read by the client, never sent in the host request." vertex="1">
+          <mxGeometry height="80" width="1080" x="40" y="780" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="publishing" name="2 · Publishing and signed updates">
+    <mxGraphModel dx="1180" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1180" pageHeight="900" adaptiveColors="auto">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p-title" value="Spore · Immutable publishing, signed successors" style="text;html=1;align=left;fontSize=25;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="1090" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p-sub" value="A new version is a new infohash. A signature offers a destination; it never moves a reader automatically." style="text;html=1;align=left;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="40" y="90" width="1090" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p-folder" value="&lt;b&gt;Local folder&lt;/b&gt;&lt;br&gt;index.html + assets&lt;br&gt;drop / choose" style="shape=mxgraph.flowchart.document;html=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="160" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="p-choice" value="Sign this&lt;br&gt;publication?" style="rhombus;html=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="220" y="160" width="140" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="p-pub" value="&lt;b&gt;spore.pub&lt;/b&gt;&lt;br&gt;Ed25519 public key&lt;br&gt;name + site / salt" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="400" y="160" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p-sig" value="&lt;b&gt;spore.sig&lt;/b&gt;&lt;br&gt;signed SHA-256 list&lt;br&gt;all files except itself" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="580" y="160" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p-new" value="&lt;b&gt;NEW immutable swarm&lt;/b&gt;&lt;br&gt;seed bytes → infohash&lt;br&gt;magnet + gate/# link" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="760" y="160" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p-identity" value="&lt;b&gt;Optional identity&lt;/b&gt;&lt;br&gt;passphrase → key&lt;br&gt;or remembered key" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="220" y="280" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p-record" value="&lt;b&gt;BEP 44 record&lt;/b&gt;&lt;br&gt;new hash + seq + salt&lt;br&gt;signed by same key" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="760" y="400" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p-old" value="&lt;b&gt;OLD swarm peers&lt;/b&gt;&lt;br&gt;sp_update (BEP 10)&lt;br&gt;offer / relay record" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="580" y="400" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p-verify" value="&lt;b&gt;Reader checks&lt;/b&gt;&lt;br&gt;declared key + salt&lt;br&gt;signature + sequence" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="400" y="400" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p-open" value="Reader opens&lt;br&gt;the offer?" style="rhombus;html=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="220" y="400" width="140" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="p-stay" value="&lt;b&gt;Stay on old version&lt;/b&gt;&lt;br&gt;dismiss / ignore&lt;br&gt;no silent redirect" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="400" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p-nav" value="&lt;b&gt;Navigate to NEW hash&lt;/b&gt;&lt;br&gt;record chosen version&lt;br&gt;ordinary gate navigation" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="220" y="520" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p-e1" source="p-folder" target="p-choice" value="validate" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p-e2" source="p-choice" target="p-pub" value="yes" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;dashed=1;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p-e3" source="p-pub" target="p-sig" value="declare + sign" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p-e4" source="p-sig" target="p-new" value="seed" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p-e12" source="p-choice" target="p-new" value="no · seed unchanged" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;exitX=0.5;exitY=0;entryX=0.5;entryY=0;jettySize=25;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p-e5" source="p-identity" target="p-choice" value="opt-in" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;dashed=1;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p-e6" source="p-new" target="p-record" value="if predecessor" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;dashed=1;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p-e7" source="p-record" target="p-old" value="announce on OLD" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p-e8" source="p-old" target="p-verify" value="sp_update" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p-e9" source="p-verify" target="p-open" value="valid only" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p-e10" source="p-open" target="p-stay" value="no" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p-e11" source="p-open" target="p-nav" value="explicit yes" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p-unsigned" value="&lt;b&gt;No signing?&lt;/b&gt;&lt;br&gt;Seed files unchanged.&lt;br&gt;Without spore.pub,&lt;br&gt;no successor authority.&lt;br&gt;&lt;br&gt;Existing spore.pub&lt;br&gt;is preserved, not&lt;br&gt;silently overwritten." style="rounded=1;html=1;whiteSpace=wrap;align=left;spacing=10;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="940" y="160" width="180" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="p-notes" value="&lt;b&gt;Two different proofs&lt;/b&gt;&lt;br&gt;Content: spore.sig authenticates the manifest; file hashes must also match. Gate verifies in the background, not as a render gate.&lt;br&gt;Successor: BEP 44 record must match the OLD site&#39;s declared key and series salt, with acceptable sequence and destination.&lt;br&gt;Neither proves a human identity. Compare the key fingerprint with a separately trusted source." style="rounded=1;html=1;whiteSpace=wrap;align=left;spacing=12;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="640" width="1080" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p-foot" value="Old-swarm availability is essential: an old reader needs a peer there to learn about the new version. Browser transport is WebRTC, not UDP/DHT.&lt;br&gt;Legend: blue = content/runtime; green = signed data/checks; amber = optional choice. Solid = flow; dashed = conditional path.&lt;br&gt;Source: js/publish.js · js/app.js · js/identity.js · js/manifest.js · js/record.js · js/updates.js · tools/seed.mjs." style="text;html=1;whiteSpace=wrap;align=left;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="780" width="1080" height="80" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="persistence" name="3 · Persistence and deployment">
+    <mxGraphModel dx="1180" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1180" pageHeight="900" adaptiveColors="auto">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="d-title" value="Spore · Persistence is not continuous availability" style="text;html=1;align=left;fontSize=25;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="1090" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="d-sub" value="Static hosting, browser storage and an optional seeder have independent lifetimes and responsibilities." style="text;html=1;align=left;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="40" y="90" width="1090" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="d-browser" value="Browser profile · origin-local storage" style="swimlane;startSize=24;html=1;fillColor=#e8f4f8;strokeColor=#6c8ebf;fontStyle=1;fontSize=14;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="160" width="520" height="450" as="geometry" />
+        </mxCell>
+        <mxCell id="d-tab" value="&lt;b&gt;Open Spore tab&lt;/b&gt;&lt;br&gt;WebTorrent memory&lt;br&gt;serve / seed while open" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="d-browser">
+          <mxGeometry x="40" y="40" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="d-sites" value="&lt;b&gt;IndexedDB&lt;/b&gt;&lt;br&gt;sites + chunks" style="shape=cylinder3;html=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="d-browser">
+          <mxGeometry x="40" y="160" width="100" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="d-key" value="&lt;b&gt;IndexedDB&lt;/b&gt;&lt;br&gt;keys" style="shape=cylinder3;html=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="d-browser">
+          <mxGeometry x="220" y="160" width="100" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="d-local" value="&lt;b&gt;localStorage&lt;/b&gt;&lt;br&gt;public metadata&lt;br&gt;+ preferences" style="shape=cylinder3;html=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="d-browser">
+          <mxGeometry x="220" y="40" width="100" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="d-bnotes" value="&lt;b&gt;Kept content&lt;/b&gt;: opt-in, complete torrent only; metadata + pieces.&lt;br&gt;Startup restores and verifies pieces, then seeds without a peer.&lt;br&gt;&lt;br&gt;&lt;b&gt;Key&lt;/b&gt;: opt-in non-extractable CryptoKey; never the passphrase.&lt;br&gt;A same-origin script can still use it to sign.&lt;br&gt;&lt;br&gt;&lt;b&gt;Authors are NOT in IndexedDB&lt;/b&gt;: localStorage holds authors,&lt;br&gt;petnames, chosen versions, publishing history and preferences." style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=12;spacing=4;" vertex="1" parent="d-browser">
+          <mxGeometry x="40" y="270" width="450" height="155" as="geometry" />
+        </mxCell>
+        <mxCell id="d-node" value="Optional operator-managed Node seeder · tools/seed.mjs" style="swimlane;startSize=24;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=14;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="580" y="160" width="540" height="450" as="geometry" />
+        </mxCell>
+        <mxCell id="d-live" value="&lt;b&gt;Live site folder&lt;/b&gt;&lt;br&gt;poll for edits&lt;br&gt;optional passphrase" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="d-node">
+          <mxGeometry x="40" y="40" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="d-frozen" value="&lt;b&gt;Frozen versions&lt;/b&gt;&lt;br&gt;versions/seq/&lt;br&gt;+ versions.json" style="shape=cylinder3;html=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="d-node">
+          <mxGeometry x="220" y="40" width="100" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="d-seeder" value="&lt;b&gt;Node WebTorrent&lt;/b&gt;&lt;br&gt;node-datachannel&lt;br&gt;restore + seed versions" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="d-node">
+          <mxGeometry x="220" y="160" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="d-nnotes" value="Freeze a copy before seeding; verify readable files.&lt;br&gt;On restart, reject copies whose infohash changed.&lt;br&gt;&lt;br&gt;Retained OLD swarms offer the newest signed successor.&lt;br&gt;Retention is bounded (default 10); pruning stops old swarms.&lt;br&gt;&lt;br&gt;Independent of browser tabs, but only available while running.&lt;br&gt;Optional read-only health endpoint; not a gate backend." style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=top;fontSize=12;spacing=4;" vertex="1" parent="d-node">
+          <mxGeometry x="40" y="270" width="450" height="155" as="geometry" />
+        </mxCell>
+        <mxCell id="d-host" value="&lt;b&gt;Any static HTTPS host&lt;/b&gt;&lt;br&gt;gate assets, not sites&lt;br&gt;relative mirror paths" style="rounded=1;html=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="640" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="d-network" value="&lt;b&gt;Shared network contract&lt;/b&gt;&lt;br&gt;WSS trackers introduce peers; WebRTC peers exchange content.&lt;br&gt;Browser &amp; Node are peers, not client &amp; application server." style="rounded=1;html=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="580" y="640" width="540" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="d-e1" source="d-tab" target="d-sites" value="keep / restore" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;startArrow=classic;dashed=1;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="d-e2" source="d-tab" target="d-local" value="read / write" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;startArrow=classic;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="d-e3" source="d-tab" target="d-key" value="remember / restore" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;startArrow=classic;dashed=1;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="d-e4" source="d-live" target="d-frozen" value="copy + sign" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="d-e5" source="d-frozen" target="d-seeder" value="read / verify" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="d-e6" source="d-host" target="d-tab" value="gate assets" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;exitX=0;exitY=0.5;entryX=0;entryY=0.5;jettySize=30;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="d-e7" source="d-seeder" target="d-network" value="WSS / WebRTC" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;startArrow=classic;exitX=1;exitY=0.5;entryX=1;entryY=0.5;jettySize=30;fontSize=11;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="d-foot" value="Storage caveat: browser data can be evicted; persistence is requested, not guaranteed. Closing the tab stops seeding even for kept sites.&lt;br&gt;Opening Spore re-announces kept sites, revealing continued possession to trackers/peers. A second mirror has separate origin-local state.&lt;br&gt;Legend: cylinders = durable stores; blue = runtime/public state; green = stored bytes; amber = signing key. Dashed = opt-in storage.&lt;br&gt;Source: js/keep.js · js/idb.js · js/authors.js · js/me.js · js/policy.js · js/swarm.js · tools/seed.mjs." style="text;html=1;whiteSpace=wrap;align=left;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="760" width="1080" height="100" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -7,6 +7,10 @@
   "//": "The gate itself has no dependencies and no build step \u2014 it is static files. Everything here is for the tools in tools/ and deploy/, which are not part of the bundle and are never needed to host or mirror it.",
   "scripts": {
     "test": "node tools/e2e.mjs",
+    "test:security": "node --test --test-concurrency=1 tools/security/unit.test.mjs tools/security/browser.test.mjs tools/security/seeder.test.mjs",
+    "test:security:unit": "node --test tools/security/unit.test.mjs",
+    "test:security:browser": "node --test tools/security/browser.test.mjs",
+    "test:security:seeder": "node --test tools/security/seeder.test.mjs",
     "serve": "node tools/serve.mjs"
   },
   "devDependencies": {
